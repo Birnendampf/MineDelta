@@ -25,7 +25,6 @@ Documented but unsupported:
 """
 
 try:
-    # noinspection PyUnusedImports
     import zlib, gzip
 
     DECOMP_LUT[1] = gzip.decompress
@@ -39,7 +38,6 @@ try:
     DECOMP_LUT[4] = lz4.frame.decompress
 except ImportError:
     pass
-
 
 SECTOR: Final = 2**12
 """4 KiB"""
@@ -268,7 +266,8 @@ class RegionFile:
                 this_header.size = other_header.size
                 self._copy_chunk(other_header, other_view)
 
-    def _copy_chunk(self, other_header: ChunkHeader, other_view: memoryview[int]) -> None:
+    # noinspection PyUnresolvedReferences
+    def _copy_chunk(self, other_header: ChunkHeader, other_view: "memoryview[int]") -> None:
         other_start = other_header.offset
         other_end = other_start + other_header.size
         # uses memcpy under the hood

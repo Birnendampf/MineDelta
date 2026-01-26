@@ -124,7 +124,6 @@ class DiffBackupManager(BaseBackupManager[int]):
             previous_backup_path = self._backup_dir / previous.name
             # noinspection PyAbstractClass
             with contextlib.ExitStack() as stack:
-                executor: concurrent.futures.Executor | None
                 if MAX_WORKERS > 1 or executor:  # compress current while filtering prev
                     if not executor:
                         executor = stack.enter_context(_DefaultExecutor(MAX_WORKERS))
