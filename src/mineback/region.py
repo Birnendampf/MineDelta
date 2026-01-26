@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Self, ClassVar, TYPE_CHECKING, Final, NamedTuple
 
-from nbt import TAG_Compound, load_nbt, load_nbt_raw
+from .nbt import TAG_Compound, load_nbt, load_nbt_raw
 
 if TYPE_CHECKING:
     from _typeshed import ReadableBuffer, WriteableBuffer, StrOrBytesPath

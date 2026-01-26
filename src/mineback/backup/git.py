@@ -14,7 +14,7 @@ import dulwich.porcelain
 import dulwich.refs
 import dulwich.repo
 
-from backup.base import (
+from .base import (
     BaseBackupManager,
     BackupInfo,
     BACKUP_IGNORE,

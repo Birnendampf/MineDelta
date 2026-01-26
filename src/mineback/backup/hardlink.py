@@ -10,7 +10,7 @@ from os import DirEntry
 from pathlib import Path
 from typing import Any, Callable
 
-from backup.base import BaseBackupManager, BackupInfo, BACKUP_IGNORE_FROZENSET, BACKUP_IGNORE, _noop
+from .base import BaseBackupManager, BackupInfo, BACKUP_IGNORE_FROZENSET, BACKUP_IGNORE, _noop
 
 
 def copytree_backup_ignore(_: Any, names: list[str]) -> frozenset[str]:

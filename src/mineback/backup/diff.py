@@ -14,7 +14,7 @@ from typing import Final, Annotated, TYPE_CHECKING, cast
 
 import msgspec
 
-from backup.base import (
+from .base import (
     BaseBackupManager,
     BackupInfo,
     BACKUP_IGNORE,
@@ -22,7 +22,7 @@ from backup.base import (
     _noop,
     _delete_file_or_dir,
 )
-from region import RegionFile
+from mineback.region import RegionFile
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
