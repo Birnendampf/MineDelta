@@ -5,14 +5,17 @@ from functools import wraps
 from pathlib import Path
 from typing import cast, Callable, TYPE_CHECKING
 
-import dulwich as dw
-import dulwich.errors
-import dulwich.gc
-import dulwich.objects
-import dulwich.objectspec
-import dulwich.porcelain
-import dulwich.refs
-import dulwich.repo
+try:
+    import dulwich as dw
+    import dulwich.errors
+    import dulwich.gc
+    import dulwich.objects
+    import dulwich.objectspec
+    import dulwich.porcelain
+    import dulwich.refs
+    import dulwich.repo
+except ImportError:
+    raise ImportError("dulwich is not installed") from None
 
 from .base import (
     BaseBackupManager,

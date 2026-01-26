@@ -8,6 +8,14 @@ dependencies = [
     "msgspec>=0.20.0",
 ]
 
+[project.optional-dependencies]
+git = [
+    "dulwich>=1.0.0",
+]
+lz4 = [
+    "lz4>=4.4.5",
+]
+
 [build-system]
 requires = ["uv_build>=0.9.9,<0.10.0"]
 build-backend = "uv_build"
