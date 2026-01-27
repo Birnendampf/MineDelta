@@ -104,7 +104,6 @@ class DiffBackupManager(BaseBackupManager[int]):
         progress: Callable[[str], None] = _noop,
         executor: concurrent.futures.Executor | None = None,
     ) -> BackupInfo:
-
         # TODO: there could be a race condition if the world is modified while a backup is created
         #  /save-off needs to be run beforehand
         timestamp = datetime.datetime.now(datetime.UTC).replace(microsecond=0)

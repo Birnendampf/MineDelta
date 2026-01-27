@@ -17,13 +17,7 @@ try:
 except ImportError:
     raise ImportError("dulwich is not installed") from None
 
-from .base import (
-    BaseBackupManager,
-    BackupInfo,
-    BACKUP_IGNORE,
-    _noop,
-    _delete_file_or_dir,
-)
+from .base import BaseBackupManager, BackupInfo, BACKUP_IGNORE, _noop, _delete_file_or_dir
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
@@ -130,9 +124,9 @@ class GitBackupManager(BaseBackupManager[str]):
         # oh boy this one's complicated. it rewrites history and WILL mess up branches
         with dw.repo.Repo(self._world) as r:
             # noinspection PyTypeChecker
-            assert (
-                len(r.refs.keys(base=dw.refs.Ref(dw.refs.LOCAL_BRANCH_PREFIX))) == 1
-            ), "Multiple branches detected"
+            assert len(r.refs.keys(base=dw.refs.Ref(dw.refs.LOCAL_BRANCH_PREFIX))) == 1, (
+                "Multiple branches detected"
+            )
             chosen = dw.objectspec.parse_commit(r, id_)
             chosen_id = chosen.id
             progress(f"preparing to delete {id_[:10]}")
@@ -141,7 +135,7 @@ class GitBackupManager(BaseBackupManager[str]):
             assert len(last_commits) < 2, "Merge commit detected"
 
             old_head = r.head()
-            progress(f"retrieving child commits")
+            progress("retrieving child commits")
             children = [
                 entry.commit
                 for entry in itertools.takewhile(lambda e: e.commit.id != chosen_id, walker)
@@ -155,7 +149,7 @@ class GitBackupManager(BaseBackupManager[str]):
 
             last_commit_id = last_commits[0]
             r.refs.set_if_equals(dw.refs.HEADREF, old_head, last_commit_id)
-            progress(f"pruning")
+            progress("pruning")
             _, freed = dw.gc.prune_unreachable_objects(
                 r.object_store, r.refs, progress=self._gc_progress(progress)
             )

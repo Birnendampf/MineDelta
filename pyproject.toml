@@ -22,13 +22,14 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "black>=26.1.0",
     "mypy>=1.19.1",
+    "ruff>=0.14.14",
 ]
 
-[tool.black]
+[tool.ruff]
 line-length = 100
 
 
 [tool.mypy]
 strict = true
+packages = "mineback"
