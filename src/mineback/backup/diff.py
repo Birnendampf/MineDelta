@@ -165,7 +165,7 @@ class DiffBackupManager(BaseBackupManager[int]):
     ) -> None:
         backups_data = self._load_backups_data_validate_idx(id_)
         progress(f'restoring backup "{backups_data[id_].id}"')
-        backups_slice = backups_data[1 : id_ + 1]
+        backups_slice = backups_data[0 : id_ + 1]
         # it's not actually abstract
         # noinspection PyAbstractClass
         with contextlib.ExitStack() as stack:
@@ -185,11 +185,9 @@ class DiffBackupManager(BaseBackupManager[int]):
                     for backup_data in backups_slice
                 ),
             )
-            backup_save = stack.enter_context(
-                _extract_to_temp(self._backup_dir / backups_data[0].name)
-            )
+            backup_save = next(extracted_backups)
             for i, (backup_data, extracted) in enumerate(
-                zip(backups_slice, extracted_backups, strict=True), 1
+                zip(backups_slice[1:], extracted_backups, strict=True), 1
             ):
                 progress(f'[{i}/{len(backups_slice)}] applying "{backup_data.id}"')
                 _apply_diff(dest=backup_save, src=extracted)
