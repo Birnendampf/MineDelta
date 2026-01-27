@@ -25,7 +25,10 @@ Documented but unsupported:
 """
 
 try:
-    import zlib, gzip
+    # noinspection PyUnusedImports
+    import zlib
+    # noinspection PyUnusedImports
+    import gzip
 
     DECOMP_LUT[1] = gzip.decompress
     DECOMP_LUT[2] = zlib.decompress
@@ -35,6 +38,7 @@ except ImportError:
 try:
     import lz4.frame  # type: ignore[import, unused-ignore]
 
+    # noinspection PyUnresolvedReferences
     DECOMP_LUT[4] = lz4.frame.decompress
 except ImportError:
     pass
