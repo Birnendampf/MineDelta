@@ -3,7 +3,8 @@ import itertools
 import shutil
 from functools import wraps
 from pathlib import Path
-from typing import cast, Callable, TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
+from collections.abc import Callable
 
 try:
     import dulwich as dw

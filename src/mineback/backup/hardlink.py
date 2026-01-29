@@ -8,7 +8,8 @@ import time
 from collections.abc import Iterator
 from os import DirEntry
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from .base import BaseBackupManager, BackupInfo, BACKUP_IGNORE_FROZENSET, BACKUP_IGNORE, _noop
 

@@ -27,6 +27,7 @@ Documented but unsupported:
 try:
     # noinspection PyUnusedImports
     import zlib
+
     # noinspection PyUnusedImports
     import gzip
 

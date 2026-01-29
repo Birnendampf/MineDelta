@@ -141,8 +141,8 @@ class DiffBackupManager(BaseBackupManager[int]):
                     src=self._world, dest=prev_world, progress=progress, executor=executor
                 )
                 progress(f'recompressing "{previous.id}"')
-                new_previous = self._backup_dir / ("new_" + previous.name)
                 if backup_fut:
+                    new_previous = self._backup_dir / ("new_" + previous.name)
                     with tarfile.open(new_previous, "w:gz") as tar:
                         tar.add(prev_world, "")
                     # make sure backup creation went well before overwriting previous
