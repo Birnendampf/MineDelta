@@ -22,7 +22,7 @@ from .base import (
     _noop,
     _delete_file_or_dir,
 )
-from mineback.region import RegionFile
+from minedelta.region import RegionFile
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
@@ -170,9 +170,9 @@ class DiffBackupManager(BaseBackupManager[int]):
         # noinspection PyAbstractClass
         with contextlib.ExitStack() as stack:
             if MAX_WORKERS > 1 or executor:
-                # mypy insists map is generic, but it is apparently not
                 if not executor:
                     executor = stack.enter_context(_DefaultExecutor(MAX_WORKERS))
+                # mypy insists map is generic, but it is apparently not
                 # noinspection PyUnresolvedReferences
                 map_meth = cast("type[map[str]]", cast(object, executor.map))
             else:

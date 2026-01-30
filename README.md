@@ -1,7 +1,25 @@
-# Comparison between backup methods
+# MineDelta Backup Utility
+
+> Why store everything when you can just store only the chunks that changed?
+
+A differential backup utility for Minecraft worlds.
+
+
+This tool offers 3 ways to create backups: diff (storing only changed chunks),
+git (using dulwich), hardlink (deduplicating identical files) each with their own advantages and
+drawbacks (see below)
+
+## Usage
+
+### As a library
+
+## Comparison between backup methods
 
 | type     | details                                                              | pros                                                                                                     | cons                                                                                                                                                                                                                                              | backup size |
 |----------|----------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|
 | diff     | newest is full backup, older store only changed chunks               | <ul><li>deleting oldest and restoring newest is fast and O(1)</li><li>best storage efficiency</li></ul>  | <ul><li>creating backups can be very slow</li><li>restoring oldest backup is O(n)</li></ul>                                                                                                                                                       | best        |
 | git      | uses git for backups                                                 | <ul><li>faster than diff in most scenarios</li><li>easy off-site backups with remotes</li></ul>          | <ul><li>deleting backups requires rewriting history</li><li>deleting oldest is O(n)</li><li>actually reclaiming disk space from deleted backups requires expensive pruning</li><li>branches and merge commits **will** break the system</li></ul> | decent      |
 | hardlink | creates hardlinks between unchanged files, effectively deduplicating | <ul><li>every backup is a valid world, can be manually restored</li><li>fastest</li><li>simple</li></ul> | only slightly more storage efficient than creating raw copies of the world                                                                                                                                                                        | worst       |
+
+---
+NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT

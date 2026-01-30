@@ -1,12 +1,38 @@
 [project]
-name = "mineback"
+name = "minedelta"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
 requires-python = ">=3.11"
+description = "(UNOFFICIAL) Minecraft Server Backup System"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["Minecraft", "Minecraft server", "differential backup", "backup", "versioning"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: System Administrators",
+
+    "Operating System :: OS Independent",
+
+    "Topic :: System :: Archiving :: Backup",
+    "Topic :: Games/Entertainment",
+    "Topic :: Utilities",
+
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+
+    "Typing :: Typed",
+]
+
 dependencies = [
     "msgspec>=0.20.0",
 ]
+
+[project.urls]
+Source = "https://github.com/Birnendampf/MineDelta"
 
 [project.optional-dependencies]
 git = [
@@ -35,4 +61,4 @@ extend-select = ["UP"]
 
 [tool.mypy]
 strict = true
-packages = "mineback"
+packages = "minedelta"
