@@ -151,6 +151,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "msgspec" },
+    { name = "typing-extensions", marker = "python_full_version < '3.12'" },
 ]
 
 [package.optional-dependencies]
@@ -172,6 +173,7 @@ requires-dist = [
     { name = "dulwich", marker = "extra == 'git'", specifier = ">=1.0.0" },
     { name = "lz4", marker = "extra == 'lz4'", specifier = ">=4.4.5" },
     { name = "msgspec", specifier = ">=0.20.0" },
+    { name = "typing-extensions", marker = "python_full_version < '3.12'", specifier = ">=4.5" },
 ]
 provides-extras = ["git", "lz4"]
 

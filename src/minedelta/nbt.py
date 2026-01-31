@@ -1,12 +1,37 @@
+"""Contains rudimentary NBT parsers and classes representing NBT types."""
+
 import abc
 import struct
+import sys
+from abc import ABCMeta
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Self, TypeAlias, TypeVar, cast
 
-from typing import Self, ClassVar, cast, Any, TypeVar, Generic, TYPE_CHECKING, TypeAlias
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
 
 if TYPE_CHECKING:
     from _typeshed import SupportsRead, SupportsWrite
 
-from abc import ABCMeta
+
+__all__ = [
+    "RawCompound",
+    "TAG_Byte",
+    "TAG_Short",
+    "TAG_Int",
+    "TAG_Long",
+    "TAG_Float",
+    "TAG_Double",
+    "TAG_Byte_Array",
+    "TAG_String",
+    "TAG_List",
+    "TAG_Compound",
+    "TAG_Int_Array",
+    "TAG_Long_Array",
+    "load_nbt_raw",
+    "load_nbt",
+]
 
 T = TypeVar("T")
 
@@ -14,12 +39,16 @@ RawCompound: TypeAlias = bytes | dict[bytes, "RawCompound"] | list["RawCompound"
 
 
 class Tag(Generic[T], metaclass=abc.ABCMeta):
+    """Base class for all NBT tags."""
+
     __slots__ = "value"
 
     def __init__(self, value: T):
+        """Create a new NBT tag with the specified value."""
         self.value = value
 
     def __eq__(self, other: object) -> bool:
+        """Check for equality in the same way dataclass does."""
         if self is other:
             return True
         if other.__class__ is self.__class__:  # this is what dataclass does
@@ -29,16 +58,18 @@ class Tag(Generic[T], metaclass=abc.ABCMeta):
     @classmethod
     @abc.abstractmethod
     def load(cls, stream: "SupportsRead[bytes]") -> Self:
-        pass
+        """Load a tag from the specified byte stream."""
 
     @abc.abstractmethod
     def dumps(self) -> bytes:
-        pass
+        """Return the tag's binary representation."""
 
     def dump(self, stream: "SupportsWrite[bytes]") -> None:
+        """Dump the tag's binary representation to stream."""
         stream.write(self.dumps())
 
     def __repr__(self) -> str:
+        """String representation of the tag. Copied from dataclass. NOT SNBT."""
         return f"{self.__class__.__qualname__}({self.value!r})"
 
     @abc.abstractmethod
@@ -46,15 +77,16 @@ class Tag(Generic[T], metaclass=abc.ABCMeta):
         pass
 
     def snbt(self, indent: int = 0, depth: int = -1) -> str:
+        """Return the SNBT representation of the tag."""
         return self._snbt_helper(0, indent, depth)
 
     @classmethod
     @abc.abstractmethod
     def get_raw(cls, stream: "SupportsRead[bytes]") -> RawCompound:
-        pass
+        """Get a binary representation of the tag while parsing as little as possible."""
 
 
-class Numeric(Tag[int], metaclass=ABCMeta):
+class _Numeric(Tag[int], metaclass=ABCMeta):
     __slots__ = ()
     _size: ClassVar[int]
     _format_char: ClassVar[str]
@@ -75,28 +107,28 @@ class Numeric(Tag[int], metaclass=ABCMeta):
 
 
 # noinspection PyPep8Naming
-class TAG_Byte(Numeric):
+class TAG_Byte(_Numeric):
     __slots__ = ()
     _size = 1
     _format_char = "b"
 
 
 # noinspection PyPep8Naming
-class TAG_Short(Numeric):
+class TAG_Short(_Numeric):
     __slots__ = ()
     _size = 2
     _format_char = "s"
 
 
 # noinspection PyPep8Naming
-class TAG_Int(Numeric):
+class TAG_Int(_Numeric):
     __slots__ = ()
     _size = 4
     _format_char = "i"
 
 
 # noinspection PyPep8Naming
-class TAG_Long(Numeric):
+class TAG_Long(_Numeric):
     __slots__ = ()
     _size = 8
     _format_char = "l"
@@ -107,16 +139,19 @@ class TAG_Float(Tag[float]):
     __slots__ = ()
     _struct: ClassVar[struct.Struct] = struct.Struct("!f")
 
+    @override
     @classmethod
     def load(cls, stream: "SupportsRead[bytes]") -> Self:
         return cls(cls._struct.unpack(stream.read(cls._struct.size))[0])
 
+    @override
     def dumps(self) -> bytes:
         return self._struct.pack(self.value)
 
     def _snbt_helper(self, indent_so_far: int, indent: int, depth: int) -> str:
         return f"{self.value}{self._struct.format[1:]}"
 
+    @override
     @classmethod
     def get_raw(cls, stream: "SupportsRead[bytes]") -> bytes:
         return stream.read(cls._struct.size)
@@ -128,10 +163,10 @@ class TAG_Double(TAG_Float):
     _struct = struct.Struct("!d")
 
 
-Numeric_T = TypeVar("Numeric_T", bound=Numeric)
+Numeric_T = TypeVar("Numeric_T", bound=_Numeric)
 
 
-class Array(Tag[list[Numeric_T]], metaclass=abc.ABCMeta):
+class _Array(Tag[list[Numeric_T]], metaclass=abc.ABCMeta):
     __slots__ = ()
     # noinspection PyClassVar
     _type: ClassVar[type[Numeric_T]]
@@ -168,7 +203,7 @@ class Array(Tag[list[Numeric_T]], metaclass=abc.ABCMeta):
 
 
 # noinspection PyPep8Naming
-class TAG_Byte_Array(Array[TAG_Byte]):
+class TAG_Byte_Array(_Array[TAG_Byte]):
     __slots__ = ()
     _type = TAG_Byte
 
@@ -177,11 +212,13 @@ class TAG_Byte_Array(Array[TAG_Byte]):
 class TAG_String(Tag[str]):
     __slots__ = ()
 
+    @override
     @classmethod
     def load(cls, stream: "SupportsRead[bytes]") -> Self:
         size = int.from_bytes(stream.read(2))
         return cls((stream.read(size)).decode("utf-8"))
 
+    @override
     def dumps(self) -> bytes:
         size = len(self.value).to_bytes(2)
         return size + self.value.encode("utf-8")
@@ -189,6 +226,7 @@ class TAG_String(Tag[str]):
     def _snbt_helper(self, indent_so_far: int, indent: int, depth: int) -> str:
         return repr(self.value)
 
+    @override
     @classmethod
     def get_raw(cls, stream: "SupportsRead[bytes]") -> bytes:
         return stream.read(int.from_bytes(stream.read(2)))
@@ -202,9 +240,11 @@ class TAG_List(Tag[list[Tag_T]]):
     __slots__ = "value_type"
 
     def __init__(self, value: list[Tag_T], val_type: type[Tag_T] | None):
+        """Create a new list TAG with the specified values of the specified type."""
         super().__init__(value)
         self.value_type = val_type
 
+    @override
     @classmethod
     def load(cls, stream: "SupportsRead[bytes]") -> Self:
         tag_id = stream.read(1)[0]
@@ -218,6 +258,7 @@ class TAG_List(Tag[list[Tag_T]]):
             tag_class_load = TAG_class.load
             return cls([tag_class_load(stream) for _ in range(size)], TAG_class)
 
+    @override
     def dumps(self) -> bytes:
         tag_id = TAG_ID_LUT[self.value_type]
         return (
@@ -226,6 +267,7 @@ class TAG_List(Tag[list[Tag_T]]):
             + b"".join(elem.dumps() for elem in self.value)
         )
 
+    @override
     def dump(self, stream: "SupportsWrite[bytes]") -> None:
         tag_id = TAG_ID_LUT[self.value_type]
         stream.write(tag_id.to_bytes(1))
@@ -254,6 +296,7 @@ class TAG_List(Tag[list[Tag_T]]):
         str_array.append("]")
         return "".join(str_array)
 
+    @override
     @classmethod
     def get_raw(cls, stream: "SupportsRead[bytes]") -> bytes | list[RawCompound]:
         tag_id = stream.read(1)[0]
@@ -272,6 +315,7 @@ class TAG_List(Tag[list[Tag_T]]):
 class TAG_Compound(Tag[dict[str, Tag[Any]]]):
     __slots__ = ()
 
+    @override
     @classmethod
     def load(cls, stream: "SupportsRead[bytes]") -> Self:
         result: dict[str, Tag[Any]] = {}
@@ -284,6 +328,7 @@ class TAG_Compound(Tag[dict[str, Tag[Any]]]):
 
         return cls(result)
 
+    @override
     def dumps(self) -> bytes:
         result: list[bytes] = []
         result_append = result.append
@@ -294,6 +339,7 @@ class TAG_Compound(Tag[dict[str, Tag[Any]]]):
             result_append(value.dumps())
         return b"".join(result)
 
+    @override
     def dump(self, stream: "SupportsWrite[bytes]") -> None:
         stream_write = stream.write
         for key, value in self.value.items():
@@ -328,6 +374,7 @@ class TAG_Compound(Tag[dict[str, Tag[Any]]]):
         str_array.append("}")
         return "".join(str_array)
 
+    @override
     @classmethod
     def get_raw(cls, stream: "SupportsRead[bytes]") -> dict[bytes, RawCompound]:
         result: dict[bytes, RawCompound] = {}
@@ -340,13 +387,13 @@ class TAG_Compound(Tag[dict[str, Tag[Any]]]):
 
 
 # noinspection PyPep8Naming
-class TAG_Int_Array(Array[TAG_Int]):
+class TAG_Int_Array(_Array[TAG_Int]):
     _type = TAG_Int
     __slots__ = ()
 
 
 # noinspection PyPep8Naming
-class TAG_Long_Array(Array[TAG_Long]):
+class TAG_Long_Array(_Array[TAG_Long]):
     _type = TAG_Long
     __slots__ = ()
 
@@ -373,7 +420,7 @@ TAG_SIZE_LUT = [0, 1, 2, 4, 8, 4, 8]
 
 
 def load_nbt_raw(stream: "SupportsRead[bytes]") -> dict[bytes, RawCompound]:
-    """get the overall structure of a nbt file, while parsing as little of it as possible"""
+    """Get the overall structure of a nbt file, while parsing as little of it as possible."""
     assert stream.read(1) == b"\x0a"
     name_len = int.from_bytes(stream.read(2))
     stream.read(name_len)
@@ -381,6 +428,7 @@ def load_nbt_raw(stream: "SupportsRead[bytes]") -> dict[bytes, RawCompound]:
 
 
 def load_nbt(stream: "SupportsRead[bytes]") -> TAG_Compound:
+    """Load NBT data from  a byte stream."""
     assert stream.read(1) == b"\x0a"
     name_len = int.from_bytes(stream.read(2))
     stream.read(name_len)

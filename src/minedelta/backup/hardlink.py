@@ -1,17 +1,29 @@
+"""Create backups by hardlinking duplicate files.
+
+For more details, see `HardlinkBackupManager`.
+"""
+
 import collections
 import datetime
 import filecmp
 import operator
 import os
 import shutil
+import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from os import DirEntry
 from pathlib import Path
 from typing import Any
-from collections.abc import Callable
 
-from .base import BaseBackupManager, BackupInfo, BACKUP_IGNORE_FROZENSET, BACKUP_IGNORE, _noop
+from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, BaseBackupManager, _noop
+
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
+
+__all__ = ["HardlinkBackupManager"]
 
 
 def copytree_backup_ignore(_: Any, names: list[str]) -> frozenset[str]:
@@ -19,9 +31,12 @@ def copytree_backup_ignore(_: Any, names: list[str]) -> frozenset[str]:
 
 
 class HardlinkBackupManager(BaseBackupManager[str]):
+    """Create backups by copying the world and hardlinking duplicate files to previous backups."""
+
     __slots__ = ()
     index_by = "id"
 
+    @override
     def create_backup(
         self, description: str | None = None, progress: Callable[[str], None] = _noop
     ) -> BackupInfo:
@@ -77,6 +92,7 @@ class HardlinkBackupManager(BaseBackupManager[str]):
     def _get_sorted_backups(self) -> list[tuple[DirEntry[str], int]]:
         return sorted(self._get_valid_backups(), key=operator.itemgetter(1), reverse=True)
 
+    @override
     def restore_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
         backup = self._backup_dir / id_
         assert backup.is_dir()
@@ -87,6 +103,7 @@ class HardlinkBackupManager(BaseBackupManager[str]):
             progress(f"restoring backup from {restore_datetime}")
         shutil.copytree(backup, self._world, dirs_exist_ok=True)
 
+    @override
     def delete_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
         backup = self._backup_dir / id_
         if progress is not _noop:
@@ -94,6 +111,7 @@ class HardlinkBackupManager(BaseBackupManager[str]):
             progress(f"deleting backup from {delete_datetime}")
         shutil.rmtree(backup)
 
+    @override
     def list_backups(self) -> list[BackupInfo]:
         return [
             BackupInfo(datetime.datetime.fromtimestamp(backup[1], datetime.UTC), str(backup[1]))

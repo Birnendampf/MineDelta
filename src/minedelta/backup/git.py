@@ -1,10 +1,21 @@
+"""Create backups using git.
+
+For more details, see `GitBackupManager`.
+"""
+
 import datetime
 import itertools
 import shutil
+import sys
+from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
-from typing import cast, TYPE_CHECKING
-from collections.abc import Callable
+from typing import TYPE_CHECKING, cast
+
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
 
 try:
     import dulwich as dw
@@ -18,13 +29,23 @@ try:
 except ImportError:
     raise ImportError("dulwich is not installed") from None
 
-from .base import BaseBackupManager, BackupInfo, BACKUP_IGNORE, _noop, _delete_file_or_dir
+from .base import BACKUP_IGNORE, BackupInfo, BaseBackupManager, _delete_file_or_dir, _noop
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
 
+__all__ = ["GitBackupManager"]
+
 
 class GitBackupManager(BaseBackupManager[str]):
+    """Manager to create backups using git.
+
+    - Creating a backup is a simple commit operation.
+    - Restoring a backup behaves like git reset --hard, but without modifying HEAD
+    - Deleting a backup is similar to an interactive rebase dropping the specified commit.
+      It does not handle merge commits or multiple branches.
+    """
+
     __slots__ = ()
     index_by = "id"
 
@@ -52,14 +73,8 @@ class GitBackupManager(BaseBackupManager[str]):
 
         return progress if progress is _noop else new_progress
 
+    @override
     def prepare(self) -> None:
-        # cases:
-        # - self._backup_dir exists and is a bare git repository => ensure link exists and return
-        # - self._backup_dir exists and is not a bare git repository
-        #   OR self._backup_dir is not a directory
-        #   remove self._backup_dir, then decide:
-        #   - self._world is not a git repository  => overwrite with git repository
-        #   - (self._
         world = Path(self._world)
         world_git = world / ".git"
         r = self._check_repo(self._world, False)
@@ -73,8 +88,8 @@ class GitBackupManager(BaseBackupManager[str]):
         else:
             _delete_file_or_dir(world_git)
             if (_backup_dir_repo := self._check_repo(self._backup_dir, True)) is not None:
-                _backup_dir_repo.close()
                 # repo exists but has no link to it
+                _backup_dir_repo.close()
                 need_move = False
             else:
                 r = dw.repo.Repo.init(self._world, default_branch=b"main", symlinks=True, format=1)
@@ -89,7 +104,7 @@ class GitBackupManager(BaseBackupManager[str]):
             r = dw.repo.Repo(self._world)
 
         assert r is not None
-
+        # at this point we have a repo where it's supposed to be and can do the actual prep
         with r:
             cfg = r.get_config()
             import socket
@@ -101,6 +116,7 @@ class GitBackupManager(BaseBackupManager[str]):
 
         (world / ".gitignore").write_text("\n".join(BACKUP_IGNORE) + "\n")
 
+    @override
     def create_backup(
         self, description: str | None = None, progress: Callable[[str], None] = _noop
     ) -> BackupInfo:
@@ -110,6 +126,7 @@ class GitBackupManager(BaseBackupManager[str]):
             commit_id = r.get_worktree().commit((description or "Automated Backup").encode())
             return self._commit_to_backup_info(cast(dw.objects.Commit, r[commit_id]))
 
+    @override
     def restore_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
         with dw.repo.Repo(self._world) as r:
             tree = dw.objectspec.parse_tree(r, id_)
@@ -121,8 +138,16 @@ class GitBackupManager(BaseBackupManager[str]):
             dw.porcelain.clean(r, r.path)
             dw.gc.maybe_auto_gc(r, progress=self._gc_progress(progress))
 
+    @override
     def delete_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
-        # oh boy this one's complicated. it rewrites history and WILL mess up branches
+        """Delete a backup.
+
+        this method rewrites git history and does not work with branches or merge commits
+
+        Args:
+            id_: Identifier of the backup to delete. Use `BackupInfo.id`
+            progress: Will be called with a string describing the progress of the backup deletion
+        """
         with dw.repo.Repo(self._world) as r:
             # noinspection PyTypeChecker
             assert len(r.refs.keys(base=dw.refs.Ref(dw.refs.LOCAL_BRANCH_PREFIX))) == 1, (
@@ -157,6 +182,7 @@ class GitBackupManager(BaseBackupManager[str]):
             progress(f"freed {freed:_} bytes")
             dw.gc.maybe_auto_gc(r, progress=self._gc_progress(progress))
 
+    @override
     def list_backups(self) -> list[BackupInfo]:
         with dw.repo.Repo(self._world) as r:
             try:

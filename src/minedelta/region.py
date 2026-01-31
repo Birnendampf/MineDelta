@@ -1,4 +1,8 @@
-"""This module parses the region file format as described in https://minecraft.wiki/w/Region_file_format"""
+"""Parse the region file format as described in https://minecraft.wiki/w/Region_file_format.
+
+This module references region files but actually operates on anvil files as well.
+The term "chunk" is used rather loosely as entities abd POIs are also stored on a per-chunk basis
+"""
 
 import contextlib
 import io
@@ -14,6 +18,9 @@ from .nbt import TAG_Compound, load_nbt, load_nbt_raw
 if TYPE_CHECKING:
     from _typeshed import ReadableBuffer, WriteableBuffer, StrOrBytesPath
     from types import TracebackType
+
+
+__all__ = ["DECOMP_LUT", "ChunkLoadingError", "ChangesReport", "RegionFile"]
 
 DECOMP_LUT: Final[dict[int, Callable[["ReadableBuffer"], "ReadableBuffer"]]] = {3: lambda v: v}
 """chunk compression schemes according to https://minecraft.wiki/w/Region_file_format#Payload
@@ -49,10 +56,20 @@ SECTOR: Final = 2**12
 
 
 class ChunkLoadingError(Exception):
-    pass
+    """Something is wrong with the region file."""
 
 
 class ChangesReport(NamedTuple):
+    """Summary of differences between two region files.
+
+    Attributes:
+        created: Indices of chunks present in this file but not other.
+        deleted: Indices of chunks present in other but not this file.
+        modified: Indices of chunks that differ.
+        moved: Indices of chunks that have been moved.
+        touched: How many chunks were marked as modified but are actually unmodified.
+    """
+
     created: list[int]
     deleted: list[int]
     modified: list[int]
@@ -62,33 +79,36 @@ class ChangesReport(NamedTuple):
 
 @dataclass(slots=True, order=True)
 class ChunkHeader:
-    """this class represents rows in the 8KiB header of a region file"""
+    """this class represents rows in the 8KiB header of a region file.
+
+    Attributes:
+        offset: Chunk offset in sectors. 0 if not created, 1 if unmodified.
+        size: Chunk size in sectors. 0 if not created or unmodified.
+        mtime: Last modification time in seconds since epoch.
+    """
 
     _table_struct: ClassVar[struct.Struct] = struct.Struct("!I")
 
     offset: int
-    """chunk offset in sectors. 0 if not created, 1 if unmodified"""
     size: int
-    """chunk size rounded up, in sectors 0 if not created"""
     mtime: int
-    """last modification time in seconds since epoch"""
 
     @classmethod
     def load(cls, buf: "ReadableBuffer", offset: int) -> Self:
-        """load chunk header from a readable ``buf`` starting at ``offset``"""
+        """Load chunk header from a readable `buf` starting at `offset`."""
         return cls(
             *divmod(cls._table_struct.unpack_from(buf, offset)[0], 256),
             *cls._table_struct.unpack_from(buf, offset + SECTOR),
         )
 
     def dump(self, buf: "WriteableBuffer", offset: int) -> None:
-        """dump chunk header to a writeable ``buf`` starting at ``offset``"""
+        """Dump chunk header to a writeable `buf` starting at `offset`."""
         self._table_struct.pack_into(buf, offset, (self.offset << 8) + self.size)
         self._table_struct.pack_into(buf, offset + SECTOR, self.mtime)
 
     @property
     def unmodified(self) -> bool:
-        """whether this chunk is marked as unmodified.
+        """Whether this chunk is marked as unmodified.
 
         Always false for vanilla region files, this can only occur in diffs
         """
@@ -102,6 +122,7 @@ class ChunkHeader:
 
     @property
     def not_created(self) -> bool:
+        """Whether this chunk has not been created yet."""
         return self.offset == self.size == 0
 
     @not_created.setter
@@ -111,17 +132,42 @@ class ChunkHeader:
 
 
 class RegionFile:
+    """Contains methods for interacting with files in the anvil/region file format.
+
+    It uses mmap under the hood and can therefor not be used on empty files.
+
+    This class can be used as a reusable context manager,
+    """
+
     __slots__ = ("_fd", "_mmap", "_headers", "_headers_changed")
 
     _chunk_heading_struct: Final = struct.Struct("!iB")
 
     def __init__(self, fd: int):
+        """Create a new `RegionFile` object.
+
+        This does not load any data yet, so most methods will raise `AttributeError`.
+
+        Args:
+            fd: The file descriptor pointing to a region file.
+        """
         self._fd = fd
         self._mmap: mmap.mmap
         self._headers: list[ChunkHeader] = []
         self._headers_changed = False
 
     def __enter__(self) -> Self:
+        """Map the region file into memory and load its headers.
+
+        Returns: The RegionFile object.
+
+        Raises:
+            ValueError: The region file is empty.
+            ChunkLoadingError: Chunk headers could not be loaded.
+            RuntimeError: The context has already been entered.
+        """
+        if hasattr(self, "_mmap"):
+            raise RuntimeError("Already loaded")
         self._mmap = mmap.mmap(self._fd, 0, access=mmap.ACCESS_WRITE)
         if not self._headers:
             self.load_headers()
@@ -133,25 +179,35 @@ class RegionFile:
         exc_value: BaseException | None,
         traceback: "TracebackType | None",
     ) -> None:
+        """Write chunk headers back to the file and release the mapping."""
         self.dump_headers()
         self._mmap.close()
         del self._mmap
 
     def __len__(self) -> int:
+        """The length of the region file."""
         return len(self._mmap)
 
     @classmethod
     @contextlib.contextmanager
     def open(cls, file: "StrOrBytesPath") -> Iterator[Self]:
+        """Helper context manager for opening a region file from a path."""
         with open(file, "r+b", 0) as f, cls(f.fileno()) as region:
             yield region
 
     def load_headers(self) -> None:
-        # if not len(self._mmap):
-        #     self._headers = [ChunkHeader(0, 0, 0) for _ in range(1024)]
-        self._headers = [ChunkHeader.load(self._mmap, offset) for offset in range(0, SECTOR, 4)]
+        """Load the region file headers.
+
+        Raises:
+            ChunkLoadingError: Chunk headers could not be loaded.
+        """
+        try:
+            self._headers = [ChunkHeader.load(self._mmap, offset) for offset in range(0, SECTOR, 4)]
+        except struct.error as e:
+            raise ChunkLoadingError("Chunk headers appear truncated") from e
 
     def dump_headers(self) -> None:
+        """Write the chunk headers back to the file if they changed."""
         if self._headers_changed:
             for idx, header in enumerate(self._headers):
                 header.dump(self._mmap, idx * 4)
@@ -167,6 +223,7 @@ class RegionFile:
             return io.BytesIO(decompressor(view))
 
     def get_chunk_nbt(self, idx: int) -> TAG_Compound:
+        """Get the NBT of the chunk at the given index."""
         header = self._headers[idx]
         return load_nbt(self._get_chunk_data(header))
 
@@ -186,9 +243,20 @@ class RegionFile:
         return this_nbt == other_nbt
 
     def density(self) -> float:
+        """Return the ratio of used space to file size in this region.
+
+        Mainly useful for debugging.
+        """
         return SECTOR * (sum(header.size for header in self._headers) + 2) / len(self)
 
     def defragment(self) -> None:
+        """Move chunks back to fill any gaps and truncate the file.
+
+        after this operation, `density()` will return `1.0`.
+
+        Raises:
+            ChunkLoadingError: Overlapping chunks were detected.
+        """
         prev_end = 2
         # noinspection PyTypeChecker
         for header in sorted(self._headers):
@@ -198,10 +266,17 @@ class RegionFile:
         self._mmap.resize(prev_end * SECTOR)
 
     def filter_diff_defragment(self, other: Self, is_chunk: bool = False) -> bool:
-        """drop all chunks in common with other and defragment the file
-        :param other: other region to compare against
-        :param is_chunk: if the region stores chunks
-        :return: True if the regions are identical
+        """Drop all chunks in common with other and defragment the file.
+
+        Args:
+            other: other region to compare against.
+            is_chunk: if the region stores chunks.
+
+        Returns:
+            Whether the regions are identical.
+
+        Raises:
+            ChunkLoadingError: Overlapping chunks were detected.
         """
         prev_end = 2
         for this_header, other_header in sorted(
@@ -230,9 +305,14 @@ class RegionFile:
         return header.offset + header.size
 
     def apply_diff(self, other: Self, defragment: bool = False) -> None:
-        """apply changes from other to self
+        """Apply changes from other to self.
 
-        when restoring backups, older should be applied to newer."""
+        when restoring backups, older should be applied to newer.
+
+        Args:
+            other: Region to apply changes from
+            defragment: Whether the file should also be defragmented
+        """
         # TODO: use os.sendfile or os.copy_file_range for improved performance (not
         #  available on windows but winapi probably has something similar)
         to_be_copied: list[tuple[ChunkHeader, ChunkHeader]] = []
@@ -280,17 +360,12 @@ class RegionFile:
             self._mmap.write(mv)
 
     def report_diff(self, other: Self, is_chunk: bool = False) -> ChangesReport:
-        """report changes between self and other"""
+        """Report changes between self and other."""
         deleted = []
-        """present in other but not self"""
         created = []
-        """present in self but not other"""
         modified = []
-        """changed between self and other"""
         touched = 0
-        """ how many chunks were marked as modified but are actually unmodified"""
         moved = []
-        """changed offset"""
 
         for idx, (this_header, other_header) in enumerate(zip(self._headers, other._headers)):
             if this_header.unmodified or other_header.unmodified:

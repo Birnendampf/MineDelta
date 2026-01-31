@@ -9,26 +9,22 @@ license-files = ["LICENSE"]
 keywords = ["Minecraft", "Minecraft server", "differential backup", "backup", "versioning"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
-
     "Intended Audience :: End Users/Desktop",
     "Intended Audience :: System Administrators",
-
     "Operating System :: OS Independent",
-
     "Topic :: System :: Archiving :: Backup",
     "Topic :: Games/Entertainment",
     "Topic :: Utilities",
-
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
-
     "Typing :: Typed",
 ]
 
 dependencies = [
     "msgspec>=0.20.0",
+    "typing-extensions>=4.5 ; python_full_version < '3.12'",
 ]
 
 [project.urls]
@@ -56,9 +52,20 @@ dev = [
 line-length = 100
 
 [tool.ruff.lint]
-extend-select = ["UP"]
+extend-select = ["UP", "D"]
+ignore = ["D104"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/minedelta/nbt.py" = ["D101"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 
 [tool.mypy]
 strict = true
 packages = "minedelta"
+
+[[tool.mypy.overrides]]
+module = ["dulwich.*"]
+ignore_missing_imports = true

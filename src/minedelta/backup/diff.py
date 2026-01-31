@@ -1,3 +1,8 @@
+"""Create backups by storing only changed chunks in region files for previous Backups.
+
+For more details, see `DiffBackupManager`.
+"""
+
 import collections
 import concurrent.futures
 import contextlib
@@ -5,27 +10,37 @@ import datetime
 import filecmp
 import os
 import shutil
+import sys
 import tarfile
 import tempfile
 import uuid
-from collections.abc import Iterator, Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Final, Annotated, TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Annotated, Final, cast
 
 import msgspec
 
+from minedelta.region import RegionFile
+
 from .base import (
-    BaseBackupManager,
-    BackupInfo,
     BACKUP_IGNORE,
     BACKUP_IGNORE_FROZENSET,
-    _noop,
+    BackupInfo,
+    BaseBackupManager,
     _delete_file_or_dir,
+    _noop,
 )
-from minedelta.region import RegionFile
+
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
+
+
+__all__ = ["MAX_WORKERS", "DiffBackupManager", "_convert_backup_data_to_json"]
 
 MCA_FOLDERS: Final = ("region", "entities", "poi")
 
@@ -44,12 +59,12 @@ if _cpu_count is None:
 if _cpu_count is None:
     _cpu_count = os.cpu_count()
 
-MAX_WORKERS: Final = _cpu_count or 1
+MAX_WORKERS = _cpu_count or 1
 del _cpu_count
 
 # note that ThreadPool is the only executor that currently works, due to unshareable objects
 # TODO: maybe support more executors if needed
-_DefaultExecutor: Final = concurrent.futures.ThreadPoolExecutor
+_DefaultExecutor = concurrent.futures.ThreadPoolExecutor
 
 
 class BackupData(msgspec.Struct, omit_defaults=True):
@@ -69,7 +84,7 @@ _BackupDataDECODER: Final = msgspec.msgpack.Decoder(list[BackupData])
 
 @contextlib.contextmanager
 def _extract_to_temp(archive: "StrPath") -> Iterator[str]:
-    """extract archive into a temporary directory and return it."""
+    """Extract archive into a temporary directory and return it."""
     with tempfile.TemporaryDirectory() as extracted:
         with tarfile.open(archive, "r:gz") as tar:
             tar.extractall(extracted, filter="data")
@@ -78,11 +93,11 @@ def _extract_to_temp(archive: "StrPath") -> Iterator[str]:
 
 @contextlib.contextmanager
 def _extract_compress(archive: "StrPath") -> Iterator[str]:
-    """extract archive into a temporary directory and return it.
-    upon exiting the context, it is archived again
+    """Extract archive into a temporary directory. recompress when exiting context.
 
-    :param archive: archive to extract
-    :return: extracted archive
+    Args:
+        archive: Archive to extract
+    Returns: Extracted archive
     """
     with _extract_to_temp(archive) as extracted:
         yield extracted
@@ -91,18 +106,38 @@ def _extract_compress(archive: "StrPath") -> Iterator[str]:
 
 
 class DiffBackupManager(BaseBackupManager[int]):
+    """Manager to create backups that only store changed chunks.
+
+    The newest backup is essentially complete copy, every previous n-th backup stores the changes needed to
+    turn the (n-1)th backup into itself. Illustration:
+
+    ===  ===========  =================
+    idx  files        diff
+    ===  ===========  =================
+    0    a0    c1 d2
+    1       b0 c0 d1  -a b0 c1->0 d2->1
+    2             d0     -b -c    d1->0
+    ===  ===========  =================
+
+    Some methods in this module take an additional `executor` parameter. This allows a
+    ThreadPoolexecutor to be reused between calls. if not specified, a new one with the number of
+    workers equal to the number of available cpu cores will be used
+    """
+
     __slots__ = "_backups_data_path"
     index_by = "idx"
 
+    @override
     def __init__(self, save: "StrPath", backup_dir: Path):
         super().__init__(save, backup_dir)
         self._backups_data_path: Final = backup_dir / "backups.dat"
 
+    @override
     def create_backup(
         self,
         description: str | None = None,
         progress: Callable[[str], None] = _noop,
-        executor: concurrent.futures.Executor | None = None,
+        executor: concurrent.futures.ThreadPoolExecutor | None = None,
     ) -> BackupInfo:
         # TODO: there could be a race condition if the world is modified while a backup is created
         #  /save-off needs to be run beforehand
@@ -157,11 +192,12 @@ class DiffBackupManager(BaseBackupManager[int]):
         with tarfile.open(self._backup_dir / name, "x:gz") as tar:
             tar.add(self._world, "", filter=_backup_filter)
 
+    @override
     def restore_backup(
         self,
         id_: int,
         progress: Callable[[str], None] = _noop,
-        executor: concurrent.futures.Executor | None = None,
+        executor: concurrent.futures.ThreadPoolExecutor | None = None,
     ) -> None:
         backups_data = self._load_backups_data_validate_idx(id_)
         progress(f'restoring backup "{backups_data[id_].id}"')
@@ -197,15 +233,15 @@ class DiffBackupManager(BaseBackupManager[int]):
             progress("restoring backup")
             shutil.copytree(backup_save, self._world, dirs_exist_ok=True)
 
+    @override
     def delete_backup(
         self,
         id_: int,
         progress: Callable[[str], None] = _noop,
-        executor: concurrent.futures.Executor | None = None,
+        executor: concurrent.futures.ThreadPoolExecutor | None = None,
     ) -> None:
         backups_data = self._load_backups_data_validate_idx(id_)
-        if id_ == len(backups_data) - 1:
-            # deleting oldest is easy
+        if id_ == len(backups_data) - 1:  # deleting oldest is easy
             data_chosen = backups_data.pop()
             progress(f'deleting oldest backup "{data_chosen.id}"')
             (self._backup_dir / data_chosen.name).unlink()
@@ -252,6 +288,7 @@ class DiffBackupManager(BaseBackupManager[int]):
         self._write_backups_data(backups_data)
         older_archive.unlink()
 
+    @override
     def list_backups(self) -> list[BackupInfo]:
         backups_data = self._load_backups_data()
         return [BackupInfo(data.timestamp, str(data.id), data.desc) for data in backups_data]
@@ -277,7 +314,7 @@ class DiffBackupManager(BaseBackupManager[int]):
 
 
 def _backup_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
-    """filter for creating tarfiles that drops files from BACKUP_IGNORE"""
+    """Filter for creating tarfiles that drops files from BACKUP_IGNORE."""
     if os.path.basename(tarinfo.name) in BACKUP_IGNORE_FROZENSET:
         return None
     return tarinfo
@@ -294,13 +331,18 @@ def _filter_diff(
     src: "StrPath",
     dest: "StrPath",
     progress: Callable[[str], None] = _noop,
-    executor: concurrent.futures.Executor | None = None,
+    executor: concurrent.futures.ThreadPoolExecutor | None = None,
 ) -> set[str]:
-    """delete files and chunks from `dest` in common with `src`. `src` is not altered
+    """Delete files and chunks from `dest` in common with `src`. `src` is not altered.
 
-    :param src: directory to compare against
-    :param dest: directory to perform changes in
-    :return: list of files found in `src` but not `dest`
+    Files and directories from BACKUP_IGNORE are skipped.
+
+    Args:
+        src: directory to compare against
+        dest: directory to perform changes in
+        progress: Will be called with a string describing which anvil file is being filtered
+        executor: Executor to use for filtering or None for single threaded operation
+    Returns: list of files found in `src` but not `dest`
     """
     compare = filecmp.dircmp(src, dest, BACKUP_IGNORE)
     not_present = set()
@@ -383,8 +425,6 @@ def _should_apply_diff(dest_file: Path, src_file: Path) -> bool:
     return True
 
 
-def convert_backup_data_to_json(backup_data: Path) -> None:
-    with open(backup_data, "rb") as f:
-        decoded = _BackupDataDECODER.decode(f.read())
-    with open(backup_data.with_suffix(".json"), "wb") as f:
-        f.write(msgspec.json.format(msgspec.json.encode(decoded)))
+def _convert_backup_data_to_json(backup_data: Path) -> None:
+    decoded = _BackupDataDECODER.decode(backup_data.read_bytes())
+    backup_data.with_suffix(".json").write_bytes(msgspec.json.format(msgspec.json.encode(decoded)))
