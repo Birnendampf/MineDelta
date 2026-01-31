@@ -10,7 +10,7 @@ import os
 import shutil
 import sys
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from os import DirEntry
 from pathlib import Path
 from typing import Any
@@ -81,15 +81,18 @@ class HardlinkBackupManager(BaseBackupManager[str]):
                 (current_new / name).hardlink_to(Path(compare.right, name))
         return new_info
 
-    def _get_valid_backups(self) -> Iterator[tuple[DirEntry[str], int]]:
-        return (
-            (child, int(child.name))
-            for child in os.scandir(self._backup_dir)
-            if child.name.isdecimal() and child.is_dir()
-        )
+    def _get_valid_backups(self) -> list[tuple[DirEntry[str], int]]:
+        with os.scandir(self._backup_dir) as scan_it:
+            return [
+                (child, int(child.name))
+                for child in scan_it
+                if child.name.isdecimal() and child.is_dir()
+            ]
 
     def _get_sorted_backups(self) -> list[tuple[DirEntry[str], int]]:
-        return sorted(self._get_valid_backups(), key=operator.itemgetter(1), reverse=True)
+        backups = self._get_valid_backups()
+        backups.sort(key=operator.itemgetter(1), reverse=True)
+        return backups
 
     @override
     def restore_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
