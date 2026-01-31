@@ -5,6 +5,7 @@ It is not intended to be used directly.
 """
 
 import abc
+import contextlib
 import datetime
 import os
 import shutil
@@ -17,7 +18,7 @@ import msgspec
 if TYPE_CHECKING:
     from _typeshed import StrPath
 
-__all__ = ["BaseBackupManager", "BackupInfo", "BACKUP_IGNORE", "BACKUP_IGNORE_FROZENSET"]
+__all__ = ["BACKUP_IGNORE", "BACKUP_IGNORE_FROZENSET", "BackupInfo", "BaseBackupManager"]
 
 _id_T = TypeVar("_id_T", str, int)
 
@@ -123,10 +124,8 @@ class BaseBackupManager(Generic[_id_T], metaclass=abc.ABCMeta):
             else:
                 dirs[:] = set(dirs) - BACKUP_IGNORE_FROZENSET
         for leaf in leaves:
-            try:
+            with contextlib.suppress(OSError):
                 os.removedirs(leaf)
-            except OSError:
-                pass
 
     # TODO: add cron functionality with aiocron
 

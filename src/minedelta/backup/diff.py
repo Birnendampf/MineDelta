@@ -44,17 +44,12 @@ __all__ = ["MAX_WORKERS", "DiffBackupManager", "_convert_backup_data_to_json"]
 MCA_FOLDERS: Final = ("region", "entities", "poi")
 
 _cpu_count: int | None = None
-try:
+with contextlib.suppress(AttributeError):
     _cpu_count = os.process_cpu_count()  # type: ignore[attr-defined]
-except AttributeError:
-    pass
 if _cpu_count is None:
     # sys.version_info < 3.13
-    try:
+    with contextlib.suppress(AttributeError):
         _cpu_count = len(os.sched_getaffinity(0))
-    except AttributeError:
-        # not UNIX
-        pass
 if _cpu_count is None:
     _cpu_count = os.cpu_count()
 
@@ -123,7 +118,7 @@ class DiffBackupManager(BaseBackupManager[int]):
     workers equal to the number of available cpu cores will be used
     """
 
-    __slots__ = "_backups_data_path"
+    __slots__ = ("_backups_data_path",)
     index_by = "idx"
 
     @override
@@ -209,7 +204,7 @@ class DiffBackupManager(BaseBackupManager[int]):
                     executor = stack.enter_context(_DefaultExecutor(MAX_WORKERS))
                 # mypy insists map is generic, but it is apparently not
                 # noinspection PyUnresolvedReferences
-                map_meth = cast("type[map[str]]", cast(object, executor.map))
+                map_meth = cast("type[map[str]]", cast("object", executor.map))
             else:
                 map_meth = map
             # extract in parallel. the GIL is released when decompressing

@@ -18,19 +18,19 @@ if TYPE_CHECKING:
 __all__ = [
     "RawCompound",
     "TAG_Byte",
-    "TAG_Short",
-    "TAG_Int",
-    "TAG_Long",
-    "TAG_Float",
-    "TAG_Double",
     "TAG_Byte_Array",
-    "TAG_String",
-    "TAG_List",
     "TAG_Compound",
+    "TAG_Double",
+    "TAG_Float",
+    "TAG_Int",
     "TAG_Int_Array",
+    "TAG_List",
+    "TAG_Long",
     "TAG_Long_Array",
-    "load_nbt_raw",
+    "TAG_Short",
+    "TAG_String",
     "load_nbt",
+    "load_nbt_raw",
 ]
 
 T = TypeVar("T")
@@ -38,10 +38,10 @@ T = TypeVar("T")
 RawCompound: TypeAlias = bytes | dict[bytes, "RawCompound"] | list["RawCompound"]
 
 
-class Tag(Generic[T], metaclass=abc.ABCMeta):
+class Tag(Generic[T], metaclass=abc.ABCMeta):  # noqa: PLW1641
     """Base class for all NBT tags."""
 
-    __slots__ = "value"
+    __slots__ = ("value",)
 
     def __init__(self, value: T):
         """Create a new NBT tag with the specified value."""
@@ -237,7 +237,7 @@ Tag_T = TypeVar("Tag_T", bound=Tag[Any])
 
 # noinspection PyPep8Naming
 class TAG_List(Tag[list[Tag_T]]):
-    __slots__ = "value_type"
+    __slots__ = ("value_type",)
 
     def __init__(self, value: list[Tag_T], val_type: type[Tag_T] | None):
         """Create a new list TAG with the specified values of the specified type."""
@@ -250,7 +250,7 @@ class TAG_List(Tag[list[Tag_T]]):
         tag_id = stream.read(1)[0]
         size = int.from_bytes(stream.read(4))
         # this is possible without a cast, but its ugly and less flexible
-        TAG_class = cast(type[Tag_T] | None, TAG_LUT[tag_id])
+        TAG_class = cast("type[Tag_T] | None", TAG_LUT[tag_id])
         if not TAG_class:
             stream.read(size)
             return cls([], None)
@@ -283,10 +283,7 @@ class TAG_List(Tag[list[Tag_T]]):
         depth -= 1
         next_indent = indent_so_far + indent
         str_array = ["["]
-        if indent:
-            str_indent = "\n" + " " * next_indent
-        else:
-            str_indent = ""
+        str_indent = "\n" + " " * next_indent if indent else ""
         for elem in self.value:
             str_array.append(str_indent)
             str_array.append(elem._snbt_helper(next_indent, indent, depth))
@@ -307,7 +304,7 @@ class TAG_List(Tag[list[Tag_T]]):
         # TAG_LUT[tag_id] can't be none at this point but mypy doesn't know that. This is a hot code
         # path so a cast is used instead of assert because it's faster at runtime
         # noinspection PyUnnecessaryCast
-        tag_class_get_raw = cast(type[Tag[Any]], TAG_LUT[tag_id]).get_raw
+        tag_class_get_raw = cast("type[Tag[Any]]", TAG_LUT[tag_id]).get_raw
         return [tag_class_get_raw(stream) for _ in range(size)]
 
 
@@ -419,17 +416,20 @@ TAG_ID_LUT: dict[type[Tag[Any]] | None, int] = {elem: idx for idx, elem in enume
 TAG_SIZE_LUT = [0, 1, 2, 4, 8, 4, 8]
 
 
-def load_nbt_raw(stream: "SupportsRead[bytes]") -> dict[bytes, RawCompound]:
-    """Get the overall structure of a nbt file, while parsing as little of it as possible."""
-    assert stream.read(1) == b"\x0a"
+def _ensure_root_compound(stream: "SupportsRead[bytes]") -> None:
+    if stream.read(1) != b"\x0a":
+        raise ValueError("Root TAG is not Compound")
     name_len = int.from_bytes(stream.read(2))
     stream.read(name_len)
+
+
+def load_nbt_raw(stream: "SupportsRead[bytes]") -> dict[bytes, RawCompound]:
+    """Get the overall structure of a nbt file, while parsing as little of it as possible."""
+    _ensure_root_compound(stream)
     return TAG_Compound.get_raw(stream)
 
 
 def load_nbt(stream: "SupportsRead[bytes]") -> TAG_Compound:
     """Load NBT data from  a byte stream."""
-    assert stream.read(1) == b"\x0a"
-    name_len = int.from_bytes(stream.read(2))
-    stream.read(name_len)
+    _ensure_root_compound(stream)
     return TAG_Compound.load(stream)

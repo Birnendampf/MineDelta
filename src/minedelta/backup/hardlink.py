@@ -56,8 +56,8 @@ class HardlinkBackupManager(BaseBackupManager[str]):
             progress("copying world (no previous backup found)")
             shutil.copytree(self._world, new_backup, ignore=copytree_backup_ignore)
             return new_info
-
-        assert prev_timestamp < timestamp, "found backup from the future???"
+        if prev_timestamp >= timestamp:
+            raise ValueError("found backup from the future???")
 
         if progress is not _noop:
             prev_datetime = datetime.datetime.fromtimestamp(prev_timestamp, datetime.UTC)
@@ -97,7 +97,8 @@ class HardlinkBackupManager(BaseBackupManager[str]):
     @override
     def restore_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
         backup = self._backup_dir / id_
-        assert backup.is_dir()
+        if not backup.is_dir():
+            raise ValueError("not a valid backup")
         progress("deleting current world")
         self._clear_world()
         if progress is not _noop:

@@ -52,8 +52,20 @@ dev = [
 line-length = 100
 
 [tool.ruff.lint]
-extend-select = ["UP", "D"]
-ignore = ["D104"]
+extend-select = [
+    "UP",
+    "D",
+    "RUF",
+    "S",
+    "ASYNC",
+    "B",
+    "SIM",
+    "TC",
+    "PERF",
+    "PL",
+    "I",
+]
+ignore = ["D104", "PLR2004"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/minedelta/nbt.py" = ["D101"]

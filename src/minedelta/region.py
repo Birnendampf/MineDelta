@@ -11,16 +11,17 @@ import operator
 import struct
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Self, ClassVar, TYPE_CHECKING, Final, NamedTuple
+from typing import TYPE_CHECKING, ClassVar, Final, Literal, NamedTuple, Self
 
 from .nbt import TAG_Compound, load_nbt, load_nbt_raw
 
 if TYPE_CHECKING:
-    from _typeshed import ReadableBuffer, WriteableBuffer, StrOrBytesPath
     from types import TracebackType
 
+    from _typeshed import ReadableBuffer, StrOrBytesPath, WriteableBuffer
 
-__all__ = ["DECOMP_LUT", "ChunkLoadingError", "ChangesReport", "RegionFile"]
+
+__all__ = ["DECOMP_LUT", "ChangesReport", "ChunkLoadingError", "RegionFile"]
 
 DECOMP_LUT: Final[dict[int, Callable[["ReadableBuffer"], "ReadableBuffer"]]] = {3: lambda v: v}
 """chunk compression schemes according to https://minecraft.wiki/w/Region_file_format#Payload
@@ -31,25 +32,18 @@ Documented but unsupported:
     coordinates, instead of the usual position.
 """
 
-try:
-    # noinspection PyUnusedImports
-    import zlib
-
-    # noinspection PyUnusedImports
+with contextlib.suppress(ImportError):
     import gzip
+    import zlib
 
     DECOMP_LUT[1] = gzip.decompress
     DECOMP_LUT[2] = zlib.decompress
-except ImportError:
-    pass
 
-try:
+with contextlib.suppress(ImportError):
     import lz4.frame  # type: ignore[import, unused-ignore]
 
-    # noinspection PyUnresolvedReferences
     DECOMP_LUT[4] = lz4.frame.decompress
-except ImportError:
-    pass
+
 
 SECTOR: Final = 2**12
 """4 KiB"""
@@ -115,8 +109,13 @@ class ChunkHeader:
         return self.offset == 1 and not self.size
 
     @unmodified.setter
-    def unmodified(self, value: bool) -> None:
-        assert value, "Can't be set to False"
+    def unmodified(self, value: Literal[True]) -> None:
+        """Mark chunk as unmodified.
+
+        Cannot be set to False.
+        """
+        if not value:
+            raise ValueError("Can't be set to False")
         self.offset = 1
         self.size = 0
 
@@ -126,8 +125,13 @@ class ChunkHeader:
         return self.offset == self.size == 0
 
     @not_created.setter
-    def not_created(self, value: bool) -> None:
-        assert value, "Can't be set to False"
+    def not_created(self, value: Literal[True]) -> None:
+        """Mark chunk as not created.
+
+        Cannot be set to False.
+        """
+        if not value:
+            raise ValueError("Can't be set to False")
         self.offset = self.size = 0
 
 
@@ -139,7 +143,7 @@ class RegionFile:
     This class can be used as a reusable context manager,
     """
 
-    __slots__ = ("_fd", "_mmap", "_headers", "_headers_changed")
+    __slots__ = ("_fd", "_headers", "_headers_changed", "_mmap")
 
     _chunk_heading_struct: Final = struct.Struct("!iB")
 
@@ -215,7 +219,8 @@ class RegionFile:
 
     def _get_chunk_data(self, header: ChunkHeader) -> io.BytesIO:
         start = header.offset * SECTOR
-        assert not (header.not_created or header.unmodified)
+        if header.not_created or header.unmodified:
+            raise ValueError("Chunk not created or unmodified")
         size, comp_type = self._chunk_heading_struct.unpack_from(self._mmap, start)
         start += 5  # actual chunk data starts here
         decompressor = DECOMP_LUT[comp_type]
@@ -280,7 +285,7 @@ class RegionFile:
         """
         prev_end = 2
         for this_header, other_header in sorted(
-            zip(self._headers, other._headers), key=operator.itemgetter(0)
+            zip(self._headers, other._headers, strict=True), key=operator.itemgetter(0)
         ):
             if this_header.not_created or this_header.unmodified:
                 continue
@@ -319,7 +324,7 @@ class RegionFile:
         added_size = 0
         self._headers_changed = True
         with memoryview(other._mmap) as other_view:
-            for this_header, other_header in zip(self._headers, other._headers):
+            for this_header, other_header in zip(self._headers, other._headers, strict=True):
                 this_header.mtime = other_header.mtime
                 if other_header.unmodified:
                     continue
@@ -367,7 +372,9 @@ class RegionFile:
         touched = 0
         moved = []
 
-        for idx, (this_header, other_header) in enumerate(zip(self._headers, other._headers)):
+        for idx, (this_header, other_header) in enumerate(
+            zip(self._headers, other._headers, strict=True)
+        ):
             if this_header.unmodified or other_header.unmodified:
                 continue
             if this_header.not_created:

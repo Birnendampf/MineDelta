@@ -4,14 +4,20 @@
 
 A differential backup utility for Minecraft worlds.
 
+This tool offers 3 ways to create backups:
 
-This tool offers 3 ways to create backups: diff (storing only changed chunks),
-git (using dulwich), hardlink (deduplicating identical files) each with their own advantages and
-drawbacks (see below)
+- diff (storing only changed chunks),
+- git (using dulwich),
+- hardlink (deduplicating identical files)
+
+each with their own advantages and drawbacks ([see below](#comparison-between-backup-methods))
 
 ## Usage
 
 ### As a library
+
+all methods derive from `minedelta.backup.base.BaseBackupManager`
+
 
 ## Comparison between backup methods
 

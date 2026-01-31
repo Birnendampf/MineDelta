@@ -3,38 +3,49 @@
 For more details, see `GitBackupManager`.
 """
 
+try:
+    import dulwich as dw
+except ImportError:
+    raise ImportError("dulwich is not installed") from None
+
 import datetime
 import itertools
 import shutil
+import socket
 import sys
 from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+import dulwich as dw
+import dulwich.errors
+import dulwich.gc
+import dulwich.objects
+import dulwich.objectspec
+import dulwich.porcelain
+import dulwich.refs
+import dulwich.repo
+
 if sys.version_info >= (3, 12):
     from typing import override
 else:
     from typing_extensions import override
 
-try:
-    import dulwich as dw
-    import dulwich.errors
-    import dulwich.gc
-    import dulwich.objects
-    import dulwich.objectspec
-    import dulwich.porcelain
-    import dulwich.refs
-    import dulwich.repo
-except ImportError:
-    raise ImportError("dulwich is not installed") from None
 
 from .base import BACKUP_IGNORE, BackupInfo, BaseBackupManager, _delete_file_or_dir, _noop
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
 
-__all__ = ["GitBackupManager"]
+__all__ = ["GitBackupManager", "InvalidRepoState"]
+
+
+HOSTNAME = socket.gethostname()
+
+
+class InvalidRepoState(Exception):
+    """The action could not be performed because the repository is in an unexpected state."""
 
 
 class GitBackupManager(BaseBackupManager[str]):
@@ -95,7 +106,7 @@ class GitBackupManager(BaseBackupManager[str]):
                 r = dw.repo.Repo.init(self._world, default_branch=b"main", symlinks=True, format=1)
 
         if need_move:
-            assert r is not None
+            assert r is not None  # noqa: S101
             _delete_file_or_dir(self._backup_dir)
             shutil.move(r.controldir(), self._backup_dir)
             r.close()
@@ -103,14 +114,13 @@ class GitBackupManager(BaseBackupManager[str]):
             world_git.write_bytes(b"gitdir: " + bytes(self._backup_dir))
             r = dw.repo.Repo(self._world)
 
-        assert r is not None
+        assert r is not None  # noqa: S101
         # at this point we have a repo where it's supposed to be and can do the actual prep
         with r:
             cfg = r.get_config()
-            import socket
 
             cfg.set("user", "name", "NKI")
-            cfg.set("user", "email", f"NKI@{socket.gethostname()}")
+            cfg.set("user", "email", f"NKI@{HOSTNAME}")
             cfg.set("core", "preloadIndex", True)
             cfg.write_to_path()
 
@@ -124,7 +134,7 @@ class GitBackupManager(BaseBackupManager[str]):
             dw.porcelain.add(r)
             progress("creating commit")
             commit_id = r.get_worktree().commit((description or "Automated Backup").encode())
-            return self._commit_to_backup_info(cast(dw.objects.Commit, r[commit_id]))
+            return self._commit_to_backup_info(cast("dw.objects.Commit", r[commit_id]))
 
     @override
     def restore_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
@@ -150,15 +160,15 @@ class GitBackupManager(BaseBackupManager[str]):
         """
         with dw.repo.Repo(self._world) as r:
             # noinspection PyTypeChecker
-            assert len(r.refs.keys(base=dw.refs.Ref(dw.refs.LOCAL_BRANCH_PREFIX))) == 1, (
-                "Multiple branches detected"
-            )
+            if len(r.refs.keys(base=dw.refs.Ref(dw.refs.LOCAL_BRANCH_PREFIX))) != 1:
+                raise InvalidRepoState("Multiple branches detected")
             chosen = dw.objectspec.parse_commit(r, id_)
             chosen_id = chosen.id
             progress(f"preparing to delete {id_[:10]}")
             walker = r.get_walker()
             last_commits = r.get_parents(chosen_id, chosen)
-            assert len(last_commits) < 2, "Merge commit detected"
+            if len(last_commits) > 1:
+                raise InvalidRepoState("Merge commit detected")
 
             old_head = r.head()
             progress("retrieving child commits")
@@ -168,7 +178,8 @@ class GitBackupManager(BaseBackupManager[str]):
             ]
             progress(f"rewriting {len(children)} commits")
             for child in reversed(children):  # oldest first
-                assert len(child.parents) < 2, "Merge commit detected"
+                if len(child.parents) > 1:
+                    raise InvalidRepoState("Merge commit detected")
                 child.parents = last_commits
                 r.object_store.add_object(child)
                 last_commits = [child.id]
