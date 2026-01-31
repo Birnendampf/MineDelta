@@ -53,18 +53,18 @@ line-length = 100
 
 [tool.ruff.lint]
 extend-select = [
-    "UP",
-    "D",
-    "RUF",
-    "S",
     "ASYNC",
+    "S",
     "B",
     "SIM",
     "TC",
-    "PERF",
-    "PL",
     "I",
     "N",
+    "PERF",
+    "D",
+    "PL",
+    "UP",
+    "RUF",
 ]
 ignore = ["D104", "PLR2004"]
 
