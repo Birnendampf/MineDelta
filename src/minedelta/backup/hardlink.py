@@ -3,7 +3,6 @@
 For more details, see `HardlinkBackupManager`.
 """
 
-import collections
 import datetime
 import filecmp
 import operator
@@ -64,7 +63,7 @@ class HardlinkBackupManager(BaseBackupManager[str]):
             prev_datetime = datetime.datetime.fromtimestamp(prev_timestamp, datetime.UTC)
             progress(f"comparing against backup from {prev_datetime}")
         compare = filecmp.dircmp(self._world, prev, BACKUP_IGNORE)
-        compare_stack = collections.deque((compare,))
+        compare_stack = [compare]
         while compare_stack:
             compare = compare_stack.pop()
             compare_stack.extend(compare.subdirs.values())

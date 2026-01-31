@@ -3,7 +3,6 @@
 For more details, see `DiffBackupManager`.
 """
 
-import collections
 import concurrent.futures
 import contextlib
 import datetime
@@ -346,7 +345,7 @@ def _filter_diff(
     """
     compare = filecmp.dircmp(src, dest, BACKUP_IGNORE)
     not_present = set()
-    compare_stack = collections.deque((("", compare),))
+    compare_stack = [("", compare)]
     to_be_filtered: list[tuple[Path, Path, bool]] = []
     while compare_stack:
         common_dir, compare = compare_stack.pop()
