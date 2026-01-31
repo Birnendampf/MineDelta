@@ -64,6 +64,7 @@ extend-select = [
     "PERF",
     "PL",
     "I",
+    "N",
 ]
 ignore = ["D104", "PLR2004"]
 
@@ -72,6 +73,9 @@ ignore = ["D104", "PLR2004"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.lint.pep8-naming]
+extend-ignore-names = ["TAG_*"]
 
 
 [tool.mypy]

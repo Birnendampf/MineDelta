@@ -18,7 +18,6 @@ from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-import dulwich as dw
 import dulwich.errors
 import dulwich.gc
 import dulwich.objects
@@ -38,13 +37,13 @@ from .base import BACKUP_IGNORE, BackupInfo, BaseBackupManager, _delete_file_or_
 if TYPE_CHECKING:
     from _typeshed import StrPath
 
-__all__ = ["GitBackupManager", "InvalidRepoState"]
+__all__ = ["GitBackupManager", "InvalidRepoStateError"]
 
 
 HOSTNAME = socket.gethostname()
 
 
-class InvalidRepoState(Exception):
+class InvalidRepoStateError(Exception):
     """The action could not be performed because the repository is in an unexpected state."""
 
 
@@ -159,16 +158,15 @@ class GitBackupManager(BaseBackupManager[str]):
             progress: Will be called with a string describing the progress of the backup deletion
         """
         with dw.repo.Repo(self._world) as r:
-            # noinspection PyTypeChecker
             if len(r.refs.keys(base=dw.refs.Ref(dw.refs.LOCAL_BRANCH_PREFIX))) != 1:
-                raise InvalidRepoState("Multiple branches detected")
+                raise InvalidRepoStateError("Multiple branches detected")
             chosen = dw.objectspec.parse_commit(r, id_)
             chosen_id = chosen.id
             progress(f"preparing to delete {id_[:10]}")
             walker = r.get_walker()
             last_commits = r.get_parents(chosen_id, chosen)
             if len(last_commits) > 1:
-                raise InvalidRepoState("Merge commit detected")
+                raise InvalidRepoStateError("Merge commit detected")
 
             old_head = r.head()
             progress("retrieving child commits")
@@ -179,7 +177,7 @@ class GitBackupManager(BaseBackupManager[str]):
             progress(f"rewriting {len(children)} commits")
             for child in reversed(children):  # oldest first
                 if len(child.parents) > 1:
-                    raise InvalidRepoState("Merge commit detected")
+                    raise InvalidRepoStateError("Merge commit detected")
                 child.parents = last_commits
                 r.object_store.add_object(child)
                 last_commits = [child.id]

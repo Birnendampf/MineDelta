@@ -150,7 +150,6 @@ class DiffBackupManager(BaseBackupManager[int]):
             self._compress_world(new_backup.name)
         else:
             previous_backup_path = self._backup_dir / previous.name
-            # noinspection PyAbstractClass
             with contextlib.ExitStack() as stack:
                 if MAX_WORKERS > 1 or executor:  # compress current while filtering prev
                     if not executor:
@@ -197,13 +196,11 @@ class DiffBackupManager(BaseBackupManager[int]):
         progress(f'restoring backup "{backups_data[id_].id}"')
         backups_slice = backups_data[0 : id_ + 1]
         # it's not actually abstract
-        # noinspection PyAbstractClass
         with contextlib.ExitStack() as stack:
             if MAX_WORKERS > 1 or executor:
                 if not executor:
                     executor = stack.enter_context(_DefaultExecutor(MAX_WORKERS))
                 # mypy insists map is generic, but it is apparently not
-                # noinspection PyUnresolvedReferences
                 map_meth = cast("type[map[str]]", cast("object", executor.map))
             else:
                 map_meth = map
@@ -247,7 +244,6 @@ class DiffBackupManager(BaseBackupManager[int]):
 
         progress(f'merging "{data_older.id}" into "{data_chosen.id}"')
         older_archive = self._backup_dir / data_older.name
-        # noinspection PyAbstractClass
         with contextlib.ExitStack() as stack:
             if MAX_WORKERS > 1 or executor:  # extract in parallel
                 if not executor:
@@ -379,7 +375,6 @@ def _filter_diff(
 
 
 def _filter_region(src_file: Path, dest_file: Path, is_chunk: bool) -> Path:
-    # noinspection PyTypeChecker
     with RegionFile.open(src_file) as new_region, RegionFile.open(dest_file) as old_region:
         unchanged = old_region.filter_diff_defragment(new_region, is_chunk)
         if unchanged:
@@ -397,7 +392,6 @@ def _apply_diff(*, src: "StrPath", dest: "StrPath", defragment: bool = False) ->
             dest_file = dest_dirpath / file
             if _should_apply_diff(dest_file, src_file):
                 # STUPID IDIOT SOFTWARE
-                # noinspection PyTypeChecker
                 with (
                     RegionFile.open(dest_file) as dest_region,
                     RegionFile.open(src_file) as src_region,

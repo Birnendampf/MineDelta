@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 __all__ = ["BACKUP_IGNORE", "BACKUP_IGNORE_FROZENSET", "BackupInfo", "BaseBackupManager"]
 
-_id_T = TypeVar("_id_T", str, int)
+_id_T = TypeVar("_id_T", str, int)  # noqa: N816
 
 
 def _noop(_: Any) -> None: ...

@@ -106,35 +106,30 @@ class _Numeric(Tag[int], metaclass=ABCMeta):
         return stream.read(cls._size)
 
 
-# noinspection PyPep8Naming
 class TAG_Byte(_Numeric):
     __slots__ = ()
     _size = 1
     _format_char = "b"
 
 
-# noinspection PyPep8Naming
 class TAG_Short(_Numeric):
     __slots__ = ()
     _size = 2
     _format_char = "s"
 
 
-# noinspection PyPep8Naming
 class TAG_Int(_Numeric):
     __slots__ = ()
     _size = 4
     _format_char = "i"
 
 
-# noinspection PyPep8Naming
 class TAG_Long(_Numeric):
     __slots__ = ()
     _size = 8
     _format_char = "l"
 
 
-# noinspection PyPep8Naming
 class TAG_Float(Tag[float]):
     __slots__ = ()
     _struct: ClassVar[struct.Struct] = struct.Struct("!f")
@@ -157,7 +152,6 @@ class TAG_Float(Tag[float]):
         return stream.read(cls._struct.size)
 
 
-# noinspection PyPep8Naming
 class TAG_Double(TAG_Float):
     __slots__ = ()
     _struct = struct.Struct("!d")
@@ -168,13 +162,11 @@ Numeric_T = TypeVar("Numeric_T", bound=_Numeric)
 
 class _Array(Tag[list[Numeric_T]], metaclass=abc.ABCMeta):
     __slots__ = ()
-    # noinspection PyClassVar
     _type: ClassVar[type[Numeric_T]]
 
     @classmethod
     def load(cls, stream: "SupportsRead[bytes]") -> Self:
         size = int.from_bytes(stream.read(4), signed=True)
-        # noinspection PyTypeChecker
         type_load = cls._type.load
         return cls([type_load(stream) for _ in range(size)])
 
@@ -188,7 +180,6 @@ class _Array(Tag[list[Numeric_T]], metaclass=abc.ABCMeta):
         for elem in self.value:
             elem.dump(stream)
 
-    # noinspection PyProtectedMember
     def _snbt_helper(self, indent_so_far: int, indent: int, depth: int) -> str:
         if not depth:
             return f"['{self._type._format_char.upper()}' x{len(self.value)}]"
@@ -198,17 +189,14 @@ class _Array(Tag[list[Numeric_T]], metaclass=abc.ABCMeta):
     @classmethod
     def get_raw(cls, stream: "SupportsRead[bytes]") -> bytes:
         length = int.from_bytes(stream.read(4))
-        # noinspection PyProtectedMember,PyTypeChecker
         return stream.read(length * cls._type._size)
 
 
-# noinspection PyPep8Naming
 class TAG_Byte_Array(_Array[TAG_Byte]):
     __slots__ = ()
     _type = TAG_Byte
 
 
-# noinspection PyPep8Naming
 class TAG_String(Tag[str]):
     __slots__ = ()
 
@@ -235,7 +223,6 @@ class TAG_String(Tag[str]):
 Tag_T = TypeVar("Tag_T", bound=Tag[Any])
 
 
-# noinspection PyPep8Naming
 class TAG_List(Tag[list[Tag_T]]):
     __slots__ = ("value_type",)
 
@@ -303,12 +290,10 @@ class TAG_List(Tag[list[Tag_T]]):
             return stream.read(size * tag_size)
         # TAG_LUT[tag_id] can't be none at this point but mypy doesn't know that. This is a hot code
         # path so a cast is used instead of assert because it's faster at runtime
-        # noinspection PyUnnecessaryCast
         tag_class_get_raw = cast("type[Tag[Any]]", TAG_LUT[tag_id]).get_raw
         return [tag_class_get_raw(stream) for _ in range(size)]
 
 
-# noinspection PyPep8Naming
 class TAG_Compound(Tag[dict[str, Tag[Any]]]):
     __slots__ = ()
 
@@ -383,13 +368,11 @@ class TAG_Compound(Tag[dict[str, Tag[Any]]]):
         return result
 
 
-# noinspection PyPep8Naming
 class TAG_Int_Array(_Array[TAG_Int]):
     _type = TAG_Int
     __slots__ = ()
 
 
-# noinspection PyPep8Naming
 class TAG_Long_Array(_Array[TAG_Long]):
     _type = TAG_Long
     __slots__ = ()
