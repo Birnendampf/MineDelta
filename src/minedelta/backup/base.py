@@ -11,7 +11,7 @@ import os
 import shutil
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Annotated, ClassVar, Final, Generic, Literal, TypeVar
 
 import msgspec
 
@@ -23,7 +23,7 @@ __all__ = ["BACKUP_IGNORE", "BACKUP_IGNORE_FROZENSET", "BackupInfo", "BaseBackup
 _id_T = TypeVar("_id_T", str, int)  # noqa: N816
 
 
-def _noop(_: Any) -> None: ...
+def _noop(_: str) -> None: ...
 
 
 BACKUP_IGNORE: Final = ["datapacks", "session.lock", "DistantHorizons.sqlite", "icon.png"]

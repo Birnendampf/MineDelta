@@ -102,8 +102,8 @@ def _extract_compress(archive: "StrPath") -> Iterator[str]:
 class DiffBackupManager(BaseBackupManager[int]):
     """Manager to create backups that only store changed chunks.
 
-    The newest backup is essentially complete copy, every previous n-th backup stores the changes needed to
-    turn the (n-1)th backup into itself. Illustration:
+    The newest backup is essentially complete copy, every previous n-th backup stores the changes
+    needed to turn the (n-1)th backup into itself. Illustration:
 
     ===  ===========  =================
     idx  files        diff
@@ -305,7 +305,8 @@ class DiffBackupManager(BaseBackupManager[int]):
 
 def _backup_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
     """Filter for creating tarfiles that drops files from BACKUP_IGNORE."""
-    if os.path.basename(tarinfo.name) in BACKUP_IGNORE_FROZENSET:
+    # using os.path because it is not worth it to create a Path just for this
+    if os.path.basename(tarinfo.name) in BACKUP_IGNORE_FROZENSET:  # noqa: PTH119
         return None
     return tarinfo
 
@@ -316,7 +317,7 @@ def _clear_not_present(path: "StrPath", info: BackupData) -> None:
         _delete_file_or_dir(file_path)
 
 
-def _filter_diff(
+def _filter_diff(  # noqa: C901  # exceepds complexity limit by one
     *,
     src: "StrPath",
     dest: "StrPath",
@@ -338,6 +339,7 @@ def _filter_diff(
     not_present = set()
     compare_stack = [("", compare)]
     to_be_filtered: list[tuple[Path, Path, bool]] = []
+
     while compare_stack:
         common_dir, compare = compare_stack.pop()
         compare_stack.extend(compare.subdirs.items())
@@ -358,18 +360,22 @@ def _filter_diff(
                 not_present.add(src_file.relative_to(src).as_posix())
                 continue
             to_be_filtered.append((src_file, dest_file, common_dir == "region"))
+
+    # filter region files
+    lazy_progress = (  # only compute relative path if necessary
+        _noop if progress is _noop else lambda path: progress(f"filtered {path.relative_to(src)}")
+    )
     if executor:
         tasks = [
             executor.submit(_filter_region, src_file, dest_file, is_chunk)
             for src_file, dest_file, is_chunk in to_be_filtered
         ]
-        if progress is not _noop:
-            for task in concurrent.futures.as_completed(tasks):
-                progress(f"filtered {task.result().relative_to(src)}")
+        for task in concurrent.futures.as_completed(tasks):
+            lazy_progress(task.result())
     else:
         for src_file, dest_file, is_chunk in to_be_filtered:
             _filter_region(src_file, dest_file, is_chunk)
-            progress(f"filtered {src_file.relative_to(src)}")
+            lazy_progress(src_file)
 
     return not_present
 

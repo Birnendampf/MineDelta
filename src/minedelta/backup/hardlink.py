@@ -13,7 +13,6 @@ import time
 from collections.abc import Callable
 from os import DirEntry
 from pathlib import Path
-from typing import Any
 
 from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, BaseBackupManager, _noop
 
@@ -25,7 +24,7 @@ else:
 __all__ = ["HardlinkBackupManager"]
 
 
-def copytree_backup_ignore(_: Any, names: list[str]) -> frozenset[str]:
+def copytree_backup_ignore(_: str, names: list[str]) -> frozenset[str]:
     return BACKUP_IGNORE_FROZENSET.intersection(names)
 
 
@@ -46,7 +45,7 @@ class HardlinkBackupManager(BaseBackupManager[str]):
         )
         if new_backup.is_dir():
             return new_info
-        elif new_backup.exists():
+        if new_backup.exists():
             new_backup.unlink(True)
 
         other_backups = self._get_valid_backups()

@@ -201,7 +201,7 @@ class GitBackupManager(BaseBackupManager[str]):
 
     @staticmethod
     def _commit_to_backup_info(commit: dw.objects.Commit) -> BackupInfo:
-        backup_info = BackupInfo(
+        return BackupInfo(
             datetime.datetime.fromtimestamp(
                 commit.commit_time,
                 datetime.timezone(datetime.timedelta(seconds=commit.commit_timezone)),
@@ -209,4 +209,3 @@ class GitBackupManager(BaseBackupManager[str]):
             commit.sha().hexdigest(),
             commit.message,
         )
-        return backup_info

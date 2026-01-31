@@ -241,9 +241,8 @@ class TAG_List(Tag[list[Tag_T]]):
         if not TAG_class:
             stream.read(size)
             return cls([], None)
-        else:
-            tag_class_load = TAG_class.load
-            return cls([tag_class_load(stream) for _ in range(size)], TAG_class)
+        tag_class_load = TAG_class.load
+        return cls([tag_class_load(stream) for _ in range(size)], TAG_class)
 
     @override
     def dumps(self) -> bytes:
