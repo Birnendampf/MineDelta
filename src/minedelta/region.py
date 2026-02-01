@@ -356,6 +356,7 @@ class RegionFile:
                 this_header.size = other_header.size
                 self._copy_chunk(other_header, other_view)
 
+    # noinspection PyUnresolvedReferences
     def _copy_chunk(self, other_header: ChunkHeader, other_view: "memoryview[int]") -> None:
         other_start = other_header.offset
         other_end = other_start + other_header.size

@@ -1,3 +1,4 @@
+# ruff: noqa: D101
 """Contains rudimentary NBT parsers and classes representing NBT types."""
 
 import abc

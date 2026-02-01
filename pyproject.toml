@@ -77,8 +77,6 @@ ignore = [
     "PTH123",
 ]
 
-[tool.ruff.lint.per-file-ignores]
-"src/minedelta/nbt.py" = ["D101"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
