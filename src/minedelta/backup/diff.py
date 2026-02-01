@@ -13,9 +13,9 @@ import sys
 import tarfile
 import tempfile
 import uuid
-from collections.abc import Callable, Iterator
-from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Final, cast
+from collections.abc import Callable, Container, Iterator
+from pathlib import Path, PurePath
+from typing import TYPE_CHECKING, Annotated, Final, TypeVar, cast
 
 import msgspec
 
@@ -97,6 +97,30 @@ def _extract_compress(archive: "StrPath") -> Iterator[str]:
         yield extracted
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(extracted, "")
+
+
+_T = TypeVar("_T", bound="PurePath")
+
+
+def partial_extract(backup_dir: Path, temp_dir: _T, backup_name: str, skip: Container[str]) -> _T:
+    """Extract only paths not listed in `skip`.
+
+    Args:
+        backup_dir: Directory to extract backups from.
+        temp_dir: Directory to extract to.
+        backup_name: Name of backup to extract.
+        skip: Set of paths to skip.
+    """
+
+    def custom_filter(member: tarfile.TarInfo, path: str) -> tarfile.TarInfo | None:
+        if member.name in skip:
+            return None
+        return tarfile.data_filter(member, path)
+
+    extracted = temp_dir / backup_name
+    with tarfile.open(backup_dir / backup_name, "r:gz") as tar:
+        tar.extractall(extracted, filter=custom_filter)  # noqa: S202
+    return extracted
 
 
 class DiffBackupManager(BaseBackupManager[int]):
@@ -317,7 +341,7 @@ def _clear_not_present(path: "StrPath", info: BackupData) -> None:
         _delete_file_or_dir(file_path)
 
 
-def _filter_diff(  # noqa: C901  # exceepds complexity limit by one
+def _filter_diff(  # noqa: C901  # exceeds complexity limit by one
     *,
     src: "StrPath",
     dest: "StrPath",
@@ -397,7 +421,6 @@ def _apply_diff(*, src: "StrPath", dest: "StrPath", defragment: bool = False) ->
             src_file = Path(dirpath, file)
             dest_file = dest_dirpath / file
             if _should_apply_diff(dest_file, src_file):
-                # STUPID IDIOT SOFTWARE
                 with (
                     RegionFile.open(dest_file) as dest_region,
                     RegionFile.open(src_file) as src_region,
@@ -419,6 +442,7 @@ def _should_apply_diff(dest_file: Path, src_file: Path) -> bool:
     return True
 
 
-def _convert_backup_data_to_json(backup_data: Path) -> None:
-    decoded = _BackupDataDECODER.decode(backup_data.read_bytes())
-    backup_data.with_suffix(".json").write_bytes(msgspec.json.format(msgspec.json.encode(decoded)))
+def _convert_backup_data_to_json(backup_data: "StrPath") -> None:
+    as_path = Path(backup_data)
+    decoded = _BackupDataDECODER.decode(as_path.read_bytes())
+    as_path.with_suffix(".json").write_bytes(msgspec.json.format(msgspec.json.encode(decoded)))
