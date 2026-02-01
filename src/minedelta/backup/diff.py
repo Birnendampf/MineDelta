@@ -27,7 +27,6 @@ from .base import (
     BACKUP_IGNORE_FROZENSET,
     BackupInfo,
     BaseBackupManager,
-    _delete_file_or_dir,
     _noop,
 )
 
@@ -156,7 +155,7 @@ class DiffBackupManager(BaseBackupManager[int]):
         self,
         description: str | None = None,
         progress: Callable[[str], None] = _noop,
-        executor: concurrent.futures.ThreadPoolExecutor | None = None,
+        executor: concurrent.futures.Executor | None = None,
     ) -> BackupInfo:
         # TODO: there could be a race condition if the world is modified while a backup is created
         #  /save-off needs to be run beforehand
@@ -176,25 +175,25 @@ class DiffBackupManager(BaseBackupManager[int]):
         else:
             previous_backup_path = self._backup_dir / previous.name
             with contextlib.ExitStack() as stack:
-                if MAX_WORKERS > 1 or executor:  # compress current while filtering prev
-                    if not executor:
-                        executor = stack.enter_context(_DefaultExecutor(MAX_WORKERS))
-                    backup_fut: concurrent.futures.Future[None] | None = executor.submit(
-                        self._compress_world, new_backup.name
+                if not executor:
+                    executor = (
+                        stack.enter_context(_DefaultExecutor(MAX_WORKERS))
+                        if MAX_WORKERS > 1
+                        else DummyExecutor()
                     )
-                    prev_world = stack.enter_context(_extract_to_temp(previous_backup_path))
-                else:
-                    executor = None
-                    backup_fut = None
-                    self._compress_world(new_backup.name)
-                    prev_world = stack.enter_context(_extract_compress(previous_backup_path))
+                backup_fut = executor.submit(self._compress_world, new_backup.name)
+                prev_world = stack.enter_context(
+                    _extract_compress(previous_backup_path)
+                    if isinstance(executor, DummyExecutor)
+                    else _extract_to_temp(previous_backup_path)
+                )
 
                 progress(f'turning "{previous.id}" into diff')
                 previous.not_present = _filter_diff(
-                    src=self._world, dest=prev_world, progress=progress, executor=executor
+                    src=self._world, dest=prev_world, executor=executor, progress=progress
                 )
                 progress(f'recompressing "{previous.id}"')
-                if backup_fut:
+                if not isinstance(executor, DummyExecutor):
                     new_previous = self._backup_dir / ("new_" + previous.name)
                     with tarfile.open(new_previous, "w:gz") as tar:
                         tar.add(prev_world, "")
@@ -252,7 +251,7 @@ class DiffBackupManager(BaseBackupManager[int]):
         self,
         id_: int,
         progress: Callable[[str], None] = _noop,
-        executor: concurrent.futures.ThreadPoolExecutor | None = None,
+        executor: concurrent.futures.Executor | None = None,
     ) -> None:
         backups_data = self._load_backups_data_validate_idx(id_)
         if id_ == len(backups_data) - 1:  # deleting oldest is easy
@@ -261,24 +260,28 @@ class DiffBackupManager(BaseBackupManager[int]):
             (self._backup_dir / data_chosen.name).unlink()
             self._write_backups_data(backups_data)
             return
-        data_chosen = backups_data[id_]
-        data_older = backups_data.pop(id_ + 1)
-        data_chosen.timestamp, data_chosen.desc = data_older.timestamp, data_older.desc
 
+        data_older = backups_data[id_ + 1]
+        data_chosen = backups_data.pop(id_)
         progress(f'merging "{data_older.id}" into "{data_chosen.id}"')
         older_archive = self._backup_dir / data_older.name
         with contextlib.ExitStack() as stack:
-            if MAX_WORKERS > 1 or executor:  # extract in parallel
-                if not executor:
-                    executor = stack.enter_context(_DefaultExecutor(MAX_WORKERS))
-                older_fut = executor.submit(stack.enter_context, _extract_to_temp(older_archive))
-                chosen = stack.enter_context(_extract_compress(self._backup_dir / data_chosen.name))
-                older = older_fut.result()
-            else:
-                older = stack.enter_context(_extract_to_temp(older_archive))
-                chosen = stack.enter_context(_extract_compress(self._backup_dir / data_chosen.name))
-
-            _clear_not_present(chosen, data_older)
+            if not executor:
+                executor = (
+                    stack.enter_context(_DefaultExecutor(MAX_WORKERS))
+                    if MAX_WORKERS > 1
+                    else DummyExecutor()
+                )
+            temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+            chosen_fut = executor.submit(
+                partial_extract,
+                self._backup_dir,
+                temp_dir,
+                data_chosen.name,
+                data_older.not_present,
+            )
+            older = stack.enter_context(_extract_to_temp(older_archive))
+            chosen = chosen_fut.result()
             _apply_diff(src=older, dest=chosen, defragment=True)
             # handle the following situation (1 being deleted):
             # idx | files | diff | new diff
@@ -289,6 +292,9 @@ class DiffBackupManager(BaseBackupManager[int]):
                 if Path(older, file).exists():
                     data_chosen.not_present.discard(file)
             progress(f'recompressing "{data_chosen.id}"')
+            with tarfile.open(older_archive, "w:gz") as tar:
+                tar.add(chosen, "")
+
         if id_:
             # handle the following situation (1 being deleted):
             # idx | files       | diff              | new diff
@@ -297,9 +303,11 @@ class DiffBackupManager(BaseBackupManager[int]):
             # 2   |          d0 |    -b -c    d1->0 | (deleted)
             # note that -b is contained in the new diff, because we do not know that b0 was
             # deleted again at idx 0
-            data_chosen.not_present.update(data_older.not_present)
+            data_older.not_present |= data_chosen.not_present
+        else:
+            data_older.not_present.clear()
         self._write_backups_data(backups_data)
-        older_archive.unlink()
+        (self._backup_dir / data_chosen.name).unlink()
 
     @override
     def list_backups(self) -> list[BackupInfo]:
@@ -334,18 +342,12 @@ def _backup_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
     return tarinfo
 
 
-def _clear_not_present(path: "StrPath", info: BackupData) -> None:
-    for file in info.not_present:
-        file_path = Path(path, file)
-        _delete_file_or_dir(file_path)
-
-
-def _filter_diff(  # noqa: C901  # exceeds complexity limit by one
+def _filter_diff(
     *,
     src: "StrPath",
     dest: "StrPath",
+    executor: concurrent.futures.Executor,
     progress: Callable[[str], None] = _noop,
-    executor: concurrent.futures.ThreadPoolExecutor | None = None,
 ) -> set[str]:
     """Delete files and chunks from `dest` in common with `src`. `src` is not altered.
 
@@ -388,17 +390,12 @@ def _filter_diff(  # noqa: C901  # exceeds complexity limit by one
     lazy_progress = (  # only compute relative path if necessary
         _noop if progress is _noop else lambda path: progress(f"filtered {path.relative_to(src)}")
     )
-    if executor:
-        tasks = [
-            executor.submit(_filter_region, src_file, dest_file, is_chunk)
-            for src_file, dest_file, is_chunk in to_be_filtered
-        ]
-        for task in concurrent.futures.as_completed(tasks):
-            lazy_progress(task.result())
-    else:
-        for src_file, dest_file, is_chunk in to_be_filtered:
-            _filter_region(src_file, dest_file, is_chunk)
-            lazy_progress(src_file)
+    tasks = [
+        executor.submit(_filter_region, src_file, dest_file, is_chunk)
+        for src_file, dest_file, is_chunk in to_be_filtered
+    ]
+    for task in concurrent.futures.as_completed(tasks):
+        lazy_progress(task.result())
 
     return not_present
 
