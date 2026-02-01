@@ -15,10 +15,11 @@ import tempfile
 import uuid
 from collections.abc import Callable, Container, Iterator
 from pathlib import Path, PurePath
-from typing import TYPE_CHECKING, Annotated, Final, TypeVar, cast
+from typing import TYPE_CHECKING, Annotated, Final, TypeVar
 
 import msgspec
 
+from minedelta._dumy_executor import DummyExecutor
 from minedelta.region import RegionFile
 
 from .base import (
@@ -214,39 +215,37 @@ class DiffBackupManager(BaseBackupManager[int]):
         self,
         id_: int,
         progress: Callable[[str], None] = _noop,
-        executor: concurrent.futures.ThreadPoolExecutor | None = None,
+        executor: concurrent.futures.Executor | None = None,
     ) -> None:
         backups_data = self._load_backups_data_validate_idx(id_)
         progress(f'restoring backup "{backups_data[id_].id}"')
-        backups_slice = backups_data[0 : id_ + 1]
-        # it's not actually abstract
+        backups_slice = backups_data[1 : id_ + 1]
         with contextlib.ExitStack() as stack:
-            if MAX_WORKERS > 1 or executor:
-                if not executor:
-                    executor = stack.enter_context(_DefaultExecutor(MAX_WORKERS))
-                # mypy insists map is generic, but it is apparently not
-                map_meth = cast("type[map[str]]", cast("object", executor.map))
-            else:
-                map_meth = map
-            # extract in parallel. the GIL is released when decompressing
-            extracted_backups = map_meth(
-                stack.enter_context,
-                (
-                    _extract_to_temp(self._backup_dir / backup_data.name)
-                    for backup_data in backups_slice
-                ),
-            )
-            backup_save = next(extracted_backups)
-            for i, (backup_data, extracted) in enumerate(
-                zip(backups_slice[1:], extracted_backups, strict=True), 1
+            temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+            if not executor:
+                executor = (
+                    stack.enter_context(_DefaultExecutor(MAX_WORKERS))
+                    if MAX_WORKERS > 1 and id_
+                    else DummyExecutor()
+                )
+
+            tasks = []
+            skip: frozenset[str] = frozenset()
+            for backup in reversed(backups_slice):
+                tasks.append(
+                    executor.submit(partial_extract, self._backup_dir, temp_dir, backup.name, skip)
+                )
+                skip |= backup.not_present
+            newest_backup = partial_extract(self._backup_dir, temp_dir, backups_data[0].name, skip)
+            for i, (backup_data, extract_task) in enumerate(
+                zip(backups_slice, reversed(tasks), strict=True), 1
             ):
                 progress(f'[{i}/{len(backups_slice)}] applying "{backup_data.id}"')
-                _apply_diff(dest=backup_save, src=extracted)
-                _clear_not_present(backup_save, backup_data)
+                _apply_diff(dest=newest_backup, src=extract_task.result())
             progress("deleting current world")
             self._clear_world()
             progress("restoring backup")
-            shutil.copytree(backup_save, self._world, dirs_exist_ok=True)
+            shutil.copytree(newest_backup, self._world, dirs_exist_ok=True)
 
     @override
     def delete_backup(
