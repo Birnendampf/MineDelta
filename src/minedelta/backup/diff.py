@@ -15,20 +15,14 @@ import tempfile
 import uuid
 from collections.abc import Callable, Container, Iterator
 from pathlib import Path, PurePath
-from typing import TYPE_CHECKING, Annotated, Final, TypeVar
+from typing import TYPE_CHECKING, Annotated, Final, Self, TypeVar
 
 import msgspec
 
 from minedelta._dumy_executor import DummyExecutor
 from minedelta.region import RegionFile
 
-from .base import (
-    BACKUP_IGNORE,
-    BACKUP_IGNORE_FROZENSET,
-    BackupInfo,
-    BaseBackupManager,
-    _noop,
-)
+from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, BaseBackupManager, _noop
 
 if sys.version_info >= (3, 12):
     from typing import override
@@ -56,8 +50,7 @@ if _cpu_count is None:
 MAX_WORKERS = _cpu_count or 1
 del _cpu_count
 
-# note that ThreadPool is the only executor that currently works, due to unshareable objects
-# TODO: maybe support more executors if needed
+# InterpreterPool is not supported due to msgspec single-phase initialization
 _DefaultExecutor = concurrent.futures.ThreadPoolExecutor
 
 
@@ -102,7 +95,7 @@ def _extract_compress(archive: "StrPath") -> Iterator[str]:
 _T = TypeVar("_T", bound="PurePath")
 
 
-def partial_extract(backup_dir: Path, temp_dir: _T, backup_name: str, skip: Container[str]) -> _T:
+def _partial_extract(backup_dir: Path, temp_dir: _T, backup_name: str, skip: Container[str]) -> _T:
     """Extract only paths not listed in `skip`.
 
     Args:
@@ -232,15 +225,16 @@ class DiffBackupManager(BaseBackupManager[int]):
             skip: frozenset[str] = frozenset()
             for backup in reversed(backups_slice):
                 tasks.append(
-                    executor.submit(partial_extract, self._backup_dir, temp_dir, backup.name, skip)
+                    executor.submit(_partial_extract, self._backup_dir, temp_dir, backup.name, skip)
                 )
                 skip |= backup.not_present
-            newest_backup = partial_extract(self._backup_dir, temp_dir, backups_data[0].name, skip)
+            newest_backup = _partial_extract(self._backup_dir, temp_dir, backups_data[0].name, skip)
+            region_file_cache = stack.enter_context(_RegionFileCache())
             for i, (backup_data, extract_task) in enumerate(
                 zip(backups_slice, reversed(tasks), strict=True), 1
             ):
                 progress(f'[{i}/{len(backups_slice)}] applying "{backup_data.id}"')
-                _apply_diff(dest=newest_backup, src=extract_task.result())
+                _apply_diff(dest=newest_backup, src=extract_task.result(), cache=region_file_cache)
             progress("deleting current world")
             self._clear_world()
             progress("restoring backup")
@@ -274,7 +268,7 @@ class DiffBackupManager(BaseBackupManager[int]):
                 )
             temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
             chosen_fut = executor.submit(
-                partial_extract,
+                _partial_extract,
                 self._backup_dir,
                 temp_dir,
                 data_chosen.name,
@@ -408,7 +402,35 @@ def _filter_region(src_file: Path, dest_file: Path, is_chunk: bool) -> Path:
     return src_file
 
 
-def _apply_diff(*, src: "StrPath", dest: "StrPath", defragment: bool = False) -> None:
+class _RegionFileCache:
+    __slots = ("_cached_regions", "_exit_stack")
+
+    def __init__(self) -> None:
+        self._cached_regions: dict[Path, RegionFile] = {}
+        self._exit_stack = contextlib.ExitStack()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def get(self, path: Path) -> RegionFile:
+        with contextlib.suppress(KeyError):
+            return self._cached_regions[path]
+        new_region = self._exit_stack.enter_context(RegionFile.open(path))
+        self._cached_regions[path] = new_region
+        return new_region
+
+    def __exit__(self, *args: object) -> None:
+        self._exit_stack.close()
+        self._cached_regions.clear()
+
+
+def _apply_diff(
+    *,
+    src: "StrPath",
+    dest: "StrPath",
+    defragment: bool = False,
+    cache: _RegionFileCache | None = None,
+) -> None:
     for dirpath, dirs, files in os.walk(src):
         dest_dirpath = dest / Path(dirpath).relative_to(src)
         for dirname in dirs:
@@ -417,10 +439,12 @@ def _apply_diff(*, src: "StrPath", dest: "StrPath", defragment: bool = False) ->
             src_file = Path(dirpath, file)
             dest_file = dest_dirpath / file
             if _should_apply_diff(dest_file, src_file):
-                with (
-                    RegionFile.open(dest_file) as dest_region,
-                    RegionFile.open(src_file) as src_region,
-                ):
+                dest_region_cm = (
+                    contextlib.nullcontext(cache.get(dest_file))
+                    if cache
+                    else RegionFile.open(dest_file)
+                )
+                with RegionFile.open(src_file) as src_region, dest_region_cm as dest_region:
                     dest_region.apply_diff(src_region, defragment)
             else:
                 shutil.copy2(src_file, dest_file)
@@ -441,4 +465,6 @@ def _should_apply_diff(dest_file: Path, src_file: Path) -> bool:
 def _convert_backup_data_to_json(backup_data: "StrPath") -> None:
     as_path = Path(backup_data)
     decoded = _BackupDataDECODER.decode(as_path.read_bytes())
-    as_path.with_suffix(".json").write_bytes(msgspec.json.format(msgspec.json.encode(decoded)))
+    as_path.with_suffix(".json").write_bytes(
+        msgspec.json.format(msgspec.json.encode(decoded, order="deterministic"))
+    )

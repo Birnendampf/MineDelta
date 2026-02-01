@@ -14,13 +14,12 @@ T = TypeVar("T")
 
 class DummyExecutor(Executor):
     def submit(self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> Future[T]:
+        """Runs the function immediately rather than concurrently.
+
+        If an exception occurs, it is raised immediately instead of being passed to the Future.
+        """
         future: Future[T] = Future()
-        try:
-            result = fn(*args, **kwargs)
-        except BaseException as exc:
-            future.set_exception(exc)
-        else:
-            future.set_result(result)
+        future.set_result(fn(*args, **kwargs))
         return future
 
     def map(self, fn: Callable[..., T], *iterables: Iterable[Any], **_: object) -> Iterator[T]:
