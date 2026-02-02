@@ -229,12 +229,12 @@ class DiffBackupManager(BaseBackupManager[int]):
                 )
                 skip |= backup.not_present
             newest_backup = _partial_extract(self._backup_dir, temp_dir, backups_data[0].name, skip)
-            region_file_cache = stack.enter_context(_RegionFileCache())
-            for i, (backup_data, extract_task) in enumerate(
-                zip(backups_slice, reversed(tasks), strict=True), 1
-            ):
-                progress(f'[{i}/{len(backups_slice)}] applying "{backup_data.id}"')
-                _apply_diff(dest=newest_backup, src=extract_task.result(), cache=region_file_cache)
+            with _RegionFileCache() as region_file_cache:
+                for i, (backup_data, extract_task) in enumerate(
+                    zip(backups_slice, reversed(tasks), strict=True), 1
+                ):
+                    progress(f'[{i}/{len(backups_slice)}] applying "{backup_data.id}"')
+                    _apply_diff(dest=newest_backup, src=extract_task.result(), cache=region_file_cache)
             progress("deleting current world")
             self._clear_world()
             progress("restoring backup")
