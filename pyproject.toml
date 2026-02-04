@@ -41,6 +41,9 @@ git = [
 lz4 = [
     "lz4>=4.4.5",
 ]
+rapid = [
+    "rapidnbt>=1.3.5",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.9,<0.10.0"]
