@@ -13,12 +13,18 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Final, Literal, NamedTuple, Self
 
-from .nbt import TAG_Compound, load_nbt, load_nbt_raw
+from .nbt import load_nbt_raw
 
 if TYPE_CHECKING:
+    from collections.abc import Sized
     from types import TracebackType
+    from typing import Protocol
 
     from _typeshed import ReadableBuffer, StrOrBytesPath, WriteableBuffer
+
+    # copied from typeshed, but it's not marked stable so we have to DIY it
+    class SizedReadableBuffer(Sized, ReadableBuffer, Protocol): ...
+
 
 __all__ = [
     "DECOMP_LUT",
@@ -32,7 +38,9 @@ __all__ = [
 ]
 
 
-DECOMP_LUT: Final[dict[int, Callable[["ReadableBuffer"], "ReadableBuffer"]]] = {3: lambda v: v}
+DECOMP_LUT: Final[dict[int, Callable[["SizedReadableBuffer"], "SizedReadableBuffer"]]] = {
+    3: lambda v: v
+}
 """chunk compression schemes according to https://minecraft.wiki/w/Region_file_format#Payload
 
 Documented but unsupported:
@@ -40,6 +48,9 @@ Documented but unsupported:
   - x + 128: the compressed data is saved in a file called c.x.z.mcc, where x and z are the chunk's
     coordinates, instead of the usual position.
 """
+
+# MCA Selector treats "no data" and "uncompressed" the same, so it is probably correct
+DECOMP_LUT[0] = DECOMP_LUT[3]
 
 with contextlib.suppress(ImportError):
     import gzip
@@ -245,7 +256,7 @@ class RegionFile:
                 header.dump(self._mmap, idx * 4)
         self._headers_changed = False
 
-    def _get_chunk_data(self, header: ChunkHeader) -> io.BytesIO:
+    def _get_chunk_data(self, header: ChunkHeader) -> "SizedReadableBuffer":
         start = header.offset * SECTOR
         if header.not_created or header.unmodified:
             raise ValueError("Chunk not created or unmodified")
@@ -255,13 +266,8 @@ class RegionFile:
             decompressor = DECOMP_LUT[comp_type]
         except KeyError:
             raise ChunkLoadingError(f"Unknown compression type: {comp_type}") from None
-        with memoryview(self._mmap) as v, v[start : start + size - 1] as view:
-            return io.BytesIO(decompressor(view))
-
-    def get_chunk_nbt(self, idx: int) -> TAG_Compound:
-        """Get the NBT of the chunk at the given index."""
-        header = self._headers[idx]
-        return load_nbt(self._get_chunk_data(header))
+        view = memoryview(self._mmap)[start: start + size - 1]
+        return decompressor(view)
 
     def _check_unchanged(
         self, this_header: ChunkHeader, other: Self, other_header: ChunkHeader, is_chunk: bool
@@ -270,10 +276,10 @@ class RegionFile:
             return True
         this_data = self._get_chunk_data(this_header)
         other_data = other._get_chunk_data(other_header)
-        if len(this_data.getbuffer()) != len(other_data.getbuffer()):
+        if len(this_data) != len(other_data):
             return False
-        this_nbt = load_nbt_raw(this_data)
-        other_nbt = load_nbt_raw(other_data)
+        this_nbt = load_nbt_raw(io.BytesIO(this_data))
+        other_nbt = load_nbt_raw(io.BytesIO(other_data))
         if is_chunk:
             other_nbt[b"LastUpdate"] = this_nbt[b"LastUpdate"]
         return this_nbt == other_nbt
