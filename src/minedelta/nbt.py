@@ -2,6 +2,7 @@
 """Contains rudimentary NBT parsers and classes representing NBT types."""
 
 import abc
+import io
 import struct
 import sys
 from abc import ABCMeta
@@ -13,7 +14,7 @@ else:
     from typing_extensions import override
 
 if TYPE_CHECKING:
-    from _typeshed import SupportsRead, SupportsWrite
+    from _typeshed import ReadableBuffer, SupportsRead, SupportsWrite
 
 
 __all__ = [
@@ -30,6 +31,7 @@ __all__ = [
     "TAG_Long_Array",
     "TAG_Short",
     "TAG_String",
+    "compare_nbt",
     "load_nbt",
     "load_nbt_raw",
 ]
@@ -416,3 +418,27 @@ def load_nbt(stream: "SupportsRead[bytes]") -> TAG_Compound:
     """Load NBT data from  a byte stream."""
     _ensure_root_compound(stream)
     return TAG_Compound.load(stream)
+
+
+try:
+    import rapidnbt
+except ImportError:
+
+    def compare_nbt(buffer1: "ReadableBuffer", buffer2: "ReadableBuffer", is_chunk: bool) -> bool:
+        """Compare two NBT files."""
+        this_nbt = load_nbt_raw(io.BytesIO(buffer1))
+        other_nbt = load_nbt_raw(io.BytesIO(buffer2))
+        if is_chunk:
+            other_nbt[b"LastUpdate"] = this_nbt[b"LastUpdate"]
+        return this_nbt == other_nbt
+else:
+
+    def compare_nbt(buffer1: "ReadableBuffer", buffer2: "ReadableBuffer", is_chunk: bool) -> bool:
+        """Compare two NBT files."""
+        this_nbt = rapidnbt.nbtio.loads(buffer1, rapidnbt.NbtFileFormat.BIG_ENDIAN)
+        other_nbt = rapidnbt.nbtio.loads(buffer2, rapidnbt.NbtFileFormat.BIG_ENDIAN)
+        if this_nbt is None or other_nbt is None:
+            raise ValueError("Failed to load NBT")
+        if is_chunk:
+            other_nbt["LastUpdate"] = this_nbt["LastUpdate"]
+        return this_nbt == other_nbt
