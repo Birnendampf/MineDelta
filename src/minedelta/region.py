@@ -5,7 +5,6 @@ The term "chunk" is used rather loosely as entities abd POIs are also stored on 
 """
 
 import contextlib
-import io
 import mmap
 import operator
 import struct
@@ -13,7 +12,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Final, Literal, NamedTuple, Self
 
-from .nbt import load_nbt_raw
+from .nbt import compare_nbt
 
 if TYPE_CHECKING:
     from collections.abc import Sized
@@ -266,7 +265,7 @@ class RegionFile:
             decompressor = DECOMP_LUT[comp_type]
         except KeyError:
             raise ChunkLoadingError(f"Unknown compression type: {comp_type}") from None
-        view = memoryview(self._mmap)[start: start + size - 1]
+        view = memoryview(self._mmap)[start : start + size - 1]
         return decompressor(view)
 
     def _check_unchanged(
@@ -278,11 +277,7 @@ class RegionFile:
         other_data = other._get_chunk_data(other_header)
         if len(this_data) != len(other_data):
             return False
-        this_nbt = load_nbt_raw(io.BytesIO(this_data))
-        other_nbt = load_nbt_raw(io.BytesIO(other_data))
-        if is_chunk:
-            other_nbt[b"LastUpdate"] = this_nbt[b"LastUpdate"]
-        return this_nbt == other_nbt
+        return compare_nbt(this_data, other_data, is_chunk)
 
     def density(self) -> float:
         """Return the ratio of used space to file size in this region.
