@@ -5,6 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$/NBTCompare" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/NBTCompare/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/NBTCompare/target" />
     </content>
@@ -14,5 +15,8 @@
   <component name="PyDocumentationSettings">
     <option name="format" value="GOOGLE" />
     <option name="myDocStringFormat" value="Google" />
+  </component>
+  <component name="TestRunnerService">
+    <option name="PROJECT_TEST_RUNNER" value="py.test" />
   </component>
 </module>
