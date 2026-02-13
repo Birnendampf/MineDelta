@@ -15,14 +15,9 @@ from typing import TYPE_CHECKING, ClassVar, Final, Literal, NamedTuple, Self
 from .nbt import compare_nbt
 
 if TYPE_CHECKING:
-    from collections.abc import Sized
     from types import TracebackType
-    from typing import Protocol
 
     from _typeshed import ReadableBuffer, StrOrBytesPath, WriteableBuffer
-
-    # copied from typeshed, but it's not marked stable so we have to DIY it
-    class SizedReadableBuffer(Sized, ReadableBuffer, Protocol): ...
 
 
 __all__ = [
@@ -36,10 +31,7 @@ __all__ = [
     "RegionLoadingError",
 ]
 
-
-DECOMP_LUT: Final[dict[int, Callable[["SizedReadableBuffer"], "SizedReadableBuffer"]]] = {
-    3: lambda v: v
-}
+DECOMP_LUT: Final[dict[int, Callable[["ReadableBuffer"], bytes]]] = {3: lambda v: bytes(v)}
 """chunk compression schemes according to https://minecraft.wiki/w/Region_file_format#Payload
 
 Documented but unsupported:
@@ -255,7 +247,7 @@ class RegionFile:
                 header.dump(self._mmap, idx * 4)
         self._headers_changed = False
 
-    def _get_chunk_data(self, header: ChunkHeader) -> "SizedReadableBuffer":
+    def _get_chunk_data(self, header: ChunkHeader) -> bytes:
         start = header.offset * SECTOR
         if header.not_created or header.unmodified:
             raise ValueError("Chunk not created or unmodified")
@@ -265,8 +257,8 @@ class RegionFile:
             decompressor = DECOMP_LUT[comp_type]
         except KeyError:
             raise ChunkLoadingError(f"Unknown compression type: {comp_type}") from None
-        view = memoryview(self._mmap)[start : start + size - 1]
-        return decompressor(view)
+        with memoryview(self._mmap)[start : start + size - 1] as view:
+            return decompressor(view)
 
     def _check_unchanged(
         self, this_header: ChunkHeader, other: Self, other_header: ChunkHeader, is_chunk: bool
