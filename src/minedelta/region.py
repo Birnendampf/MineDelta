@@ -20,8 +20,17 @@ if TYPE_CHECKING:
 
     from _typeshed import ReadableBuffer, StrOrBytesPath, WriteableBuffer
 
+__all__ = [
+    "DECOMP_LUT",
+    "SECTOR",
+    "ChangesReport",
+    "CorruptedRegionError",
+    "EmptyRegionError",
+    "RegionError",
+    "RegionFile",
+    "RegionLoadingError",
+]
 
-__all__ = ["DECOMP_LUT", "ChangesReport", "ChunkLoadingError", "RegionFile"]
 
 DECOMP_LUT: Final[dict[int, Callable[["ReadableBuffer"], "ReadableBuffer"]]] = {3: lambda v: v}
 """chunk compression schemes according to https://minecraft.wiki/w/Region_file_format#Payload
@@ -49,8 +58,24 @@ SECTOR: Final = 2**12
 """4 KiB"""
 
 
-class ChunkLoadingError(Exception):
+class RegionError(Exception):
+    """Base class for all region-related errors."""
+
+
+class RegionLoadingError(RegionError):
     """Something is wrong with the region file."""
+
+
+class ChunkLoadingError(RegionLoadingError):
+    """A chunk in a region file could not be loaded."""
+
+
+class EmptyRegionError(RegionLoadingError):
+    """The region file is empty."""
+
+
+class CorruptedRegionError(RegionError):
+    """The region file appears corrupted."""
 
 
 class ChangesReport(NamedTuple):
@@ -172,7 +197,10 @@ class RegionFile:
         """
         if hasattr(self, "_mmap"):
             raise RuntimeError("Already loaded")
-        self._mmap = mmap.mmap(self._fd, 0, access=mmap.ACCESS_WRITE)
+        try:
+            self._mmap = mmap.mmap(self._fd, 0, access=mmap.ACCESS_WRITE)
+        except ValueError as e:
+            raise EmptyRegionError("Region is empty") from e
         if not self._headers:
             self.load_headers()
         return self
@@ -208,7 +236,7 @@ class RegionFile:
         try:
             self._headers = [ChunkHeader.load(self._mmap, offset) for offset in range(0, SECTOR, 4)]
         except struct.error as e:
-            raise ChunkLoadingError("Chunk headers appear truncated") from e
+            raise RegionLoadingError("Chunk headers appear truncated") from e
 
     def dump_headers(self) -> None:
         """Write the chunk headers back to the file if they changed."""
@@ -223,7 +251,10 @@ class RegionFile:
             raise ValueError("Chunk not created or unmodified")
         size, comp_type = self._chunk_heading_struct.unpack_from(self._mmap, start)
         start += 5  # actual chunk data starts here
-        decompressor = DECOMP_LUT[comp_type]
+        try:
+            decompressor = DECOMP_LUT[comp_type]
+        except KeyError:
+            raise ChunkLoadingError(f"Unknown compression type: {comp_type}") from None
         with memoryview(self._mmap) as v, v[start : start + size - 1] as view:
             return io.BytesIO(decompressor(view))
 
@@ -306,7 +337,7 @@ class RegionFile:
             header.offset = prev_end
             self._headers_changed = True
         elif header.offset < prev_end:
-            raise ChunkLoadingError("overlapping chunks")
+            raise CorruptedRegionError("overlapping chunks")
         return header.offset + header.size
 
     def apply_diff(self, other: Self, defragment: bool = False) -> None:
