@@ -1,6 +1,5 @@
 """Contains a special NBT parser used to compare nbt data as quickly as possible."""
 
-import contextlib
 import functools
 import io
 import struct

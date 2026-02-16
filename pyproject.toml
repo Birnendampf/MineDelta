@@ -97,12 +97,8 @@ strict = true
 packages = "minedelta"
 
 [[tool.mypy.overrides]]
-module = ["dulwich.*"]
+module = ["dulwich.*", "lz4.*", "nbtcompare"]
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["rapidnbt.*"]
-follow_untyped_imports = true
 
 [tool.uv.sources]
 nbtcompare = { git = "https://github.com/Birnendampf/NBTCompare" }

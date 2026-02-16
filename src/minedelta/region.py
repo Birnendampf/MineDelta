@@ -51,7 +51,7 @@ with contextlib.suppress(ImportError):
     DECOMP_LUT[2] = zlib.decompress
 
 with contextlib.suppress(ImportError):
-    import lz4.frame  # type: ignore[import, unused-ignore]
+    import lz4.frame
 
     DECOMP_LUT[4] = lz4.frame.decompress
 
