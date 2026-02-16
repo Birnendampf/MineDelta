@@ -93,7 +93,7 @@ def load_nbt_raw(data: bytes) -> dict[bytes, RawCompound]:
 
 def _load_add_exc_note(data: bytes, left: bool) -> dict[bytes, RawCompound]:
     try:
-        this_nbt = load_nbt_raw(data)
+        return load_nbt_raw(data)
     except Exception as exc:
         exc.add_note(f"Occurred while parsing {'left' if left else 'right'}")
         raise exc
