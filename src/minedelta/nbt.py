@@ -83,11 +83,11 @@ def load_nbt_raw(data: bytes) -> dict[bytes, RawCompound]:
     return _get_raw_compound(stream)
 
 
-def _py_compare_nbt(buffer1: bytes, buffer2: bytes, is_chunk: bool) -> bool:
+def _py_compare_nbt(left: bytes, right: bytes, exclude_last_update: bool = False) -> bool:
     """Compare two NBT files."""
-    this_nbt = load_nbt_raw(buffer1)
-    other_nbt = load_nbt_raw(buffer2)
-    if is_chunk:
+    this_nbt = load_nbt_raw(left)
+    other_nbt = load_nbt_raw(right)
+    if exclude_last_update:
         this_nbt.pop(b"LastUpdate", None)
         other_nbt.pop(b"LastUpdate", None)
     return this_nbt == other_nbt
