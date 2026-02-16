@@ -38,7 +38,6 @@ def _get_raw_list(stream: io.BytesIO) -> bytes | list[RawCompound]:
 
     # TAG_LUT[tag_id] can't be none at this point but mypy doesn't know that. This is a hot code
     # path so a cast is used instead of assert because it's faster at runtime
-    # noinspection PyUnnecessaryCast
     parse_func = cast("_parse_func_type", TAG_LUT[tag_id])
     return [parse_func(stream) for _ in range(size)]
 
@@ -46,7 +45,11 @@ def _get_raw_list(stream: io.BytesIO) -> bytes | list[RawCompound]:
 def _get_raw_compound(stream: io.BytesIO) -> dict[bytes, RawCompound]:
     result: dict[bytes, RawCompound] = {}
 
-    while parse_func := TAG_LUT[stream.read(1)[0]]:
+    while tag_id := stream.read(1)[0]:
+        try:
+            parse_func = cast("_parse_func_type", TAG_LUT[tag_id])
+        except IndexError:
+            raise ValueError("Unknown tag id in Compound") from None
         name_len = _U_SHORT.unpack(stream.read(2))[0]
         raw_name = stream.read(name_len)
         result[raw_name] = parse_func(stream)
@@ -79,7 +82,7 @@ def load_nbt_raw(data: bytes) -> dict[bytes, RawCompound]:
     stream = io.BytesIO(data)
     try:
         if stream.read(1)[0] != 10:
-            raise ValueError("Root TAG is not Compound")
+            raise ValueError("Root tag is not Compound")
 
         name_len = _U_SHORT.unpack(stream.read(2))[0]
         stream.read(name_len)  # Skip root name
