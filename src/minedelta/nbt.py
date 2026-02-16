@@ -94,26 +94,9 @@ def _py_compare_nbt(buffer1: bytes, buffer2: bytes, is_chunk: bool) -> bool:
     return this_nbt == other_nbt
 
 
-compare_nbt = _py_compare_nbt
-
-with contextlib.suppress(ImportError):
-    import rapidnbt
-
-    def _rapid_compare_nbt(left: bytes, right: bytes, is_chunk: bool) -> bool:
-        """Compare two NBT files."""
-        this_nbt = rapidnbt.nbtio.loads(left, rapidnbt.NbtFileFormat.BIG_ENDIAN)
-        other_nbt = rapidnbt.nbtio.loads(right, rapidnbt.NbtFileFormat.BIG_ENDIAN)
-        if this_nbt is None or other_nbt is None:
-            raise ValueError("Failed to load NBT")
-        if is_chunk:
-            this_nbt.pop("LastUpdate")
-            other_nbt.pop("LastUpdate")
-        return this_nbt == other_nbt
-
-    compare_nbt = _rapid_compare_nbt
-
-
-with contextlib.suppress(ImportError):
+try:
     from nbtcompare import compare as _rust_compare_nbt
-
+except ImportError:
+    compare_nbt = _py_compare_nbt
+else:
     compare_nbt = _rust_compare_nbt
