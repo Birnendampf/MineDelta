@@ -24,7 +24,7 @@ class Compression(enum.IntEnum):
     __str__ = enum.Enum.__str__
 
 
-def generate_bare_region_file(path: Path):
+def generate_bare_region_file(path: Path) -> None:
     """Create a bare region file for testing."""
     with open(path, "wb") as f:
         f.truncate(8192)

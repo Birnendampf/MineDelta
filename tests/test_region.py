@@ -9,14 +9,14 @@ from tests import helpers
 
 
 @pytest.fixture
-def bare_region_file(tmp_path: Path):
+def bare_region_file(tmp_path: Path) -> Path:
     mca_file = tmp_path / "r.0.0.mca"
     helpers.generate_bare_region_file(mca_file)
     return mca_file
 
 
 @pytest.fixture
-def dummy_region_file(bare_region_file: Path):
+def dummy_region_file(bare_region_file: Path) -> Path:
     """generate a dummy region file with one chunk"""
     helpers.write_nbt_to_region_file(
         bare_region_file, 0, 1, nbt.CompoundTag({"LastUpdate": nbt.LongTag(1)})
@@ -26,7 +26,7 @@ def dummy_region_file(bare_region_file: Path):
 
 # noinspection PyTypeChecker
 class TestRegionFile:
-    def test_open(self, tmp_path: Path):
+    def test_open(self, tmp_path: Path) -> None:
         mca_file = tmp_path / "r.0.0.mca"
         mca_file.touch()
         with pytest.raises(region.EmptyRegionError), region.RegionFile.open(mca_file):
@@ -37,7 +37,7 @@ class TestRegionFile:
         with pytest.raises(region.RegionLoadingError), region.RegionFile.open(mca_file):
             pass
 
-    def test_headers_empty(self, bare_region_file: Path):
+    def test_headers_empty(self, bare_region_file: Path) -> None:
         with pytest.raises(RuntimeError), region.RegionFile.open(bare_region_file) as r, r:
             pass
         with region.RegionFile.open(bare_region_file) as r:
@@ -49,7 +49,7 @@ class TestRegionFile:
     @pytest.mark.parametrize("external", [True, False])
     def test__get_chunk_data(
         self, compression: helpers.Compression, external: bool, bare_region_file: Path
-    ):
+    ) -> None:
         tag = nbt.CompoundTag({"LastUpdate": 1, "SomeArray": bytearray(range(255))})
         helpers.write_nbt_to_region_file(bare_region_file, 0, 1, tag, compression, external)
         with region.RegionFile.open(bare_region_file) as r:
@@ -67,7 +67,7 @@ class TestRegionFile:
         is_chunk: bool,
         dummy_region_file: Path,
         tmp_path: Path,
-    ):
+    ) -> None:
         expected = timestamp == 1 or last_update == 1 or is_chunk
 
         other_mca = shutil.copyfile(dummy_region_file, tmp_path / "r.0.1.mca")
