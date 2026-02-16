@@ -90,10 +90,18 @@ def load_nbt_raw(data: bytes) -> dict[bytes, RawCompound]:
     return _get_raw_compound(stream)
 
 
+def _load_add_exc_note(data: bytes, left: bool) -> dict[bytes, RawCompound]:
+    try:
+        this_nbt = load_nbt_raw(data)
+    except Exception as exc:
+        exc.add_note(f"Occurred while parsing {'left' if left else 'right'}")
+        raise exc
+
+
 def _py_compare_nbt(left: bytes, right: bytes, exclude_last_update: bool = False) -> bool:
     """Compare two NBT files."""
-    this_nbt = load_nbt_raw(left)
-    other_nbt = load_nbt_raw(right)
+    this_nbt = _load_add_exc_note(left, True)
+    other_nbt = _load_add_exc_note(right, False)
     if exclude_last_update:
         this_nbt.pop(b"LastUpdate", None)
         other_nbt.pop(b"LastUpdate", None)
