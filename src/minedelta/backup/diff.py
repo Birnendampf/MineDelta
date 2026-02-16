@@ -234,7 +234,9 @@ class DiffBackupManager(BaseBackupManager[int]):
                     zip(backups_slice, reversed(tasks), strict=True), 1
                 ):
                     progress(f'[{i}/{len(backups_slice)}] applying "{backup_data.id}"')
-                    _apply_diff(dest=newest_backup, src=extract_task.result(), cache=region_file_cache)
+                    _apply_diff(
+                        dest=newest_backup, src=extract_task.result(), cache=region_file_cache
+                    )
             progress("deleting current world")
             self._clear_world()
             progress("restoring backup")
