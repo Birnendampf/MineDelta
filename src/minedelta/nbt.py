@@ -76,18 +76,19 @@ def load_nbt_raw(data: bytes) -> dict[bytes, RawCompound]:
     Raises:
         EOFError: Unexpected end of file.
     """
-    try:
-        if data[0] != 10:
-            raise ValueError("Root TAG is not Compound")
-    except IndexError:
-        raise EOFError("Unexpected EOF") from None
-
     stream = io.BytesIO(data)
-    stream.read(1)  # Skip root tag
-    name_len = _U_SHORT.unpack(stream.read(2))[0]
-    stream.read(name_len)  # Skip root name
+    try:
+        if stream.read(1)[0] != 10:
+            raise ValueError("Root TAG is not Compound")
 
-    return _get_raw_compound(stream)
+        name_len = _U_SHORT.unpack(stream.read(2))[0]
+        stream.read(name_len)  # Skip root name
+
+        return _get_raw_compound(stream)
+    except (IndexError, struct.error) as exc:
+        if not stream.read(1):
+            raise EOFError("Unexpected EOF") from exc
+        raise exc
 
 
 def _load_add_exc_note(data: bytes, left: bool) -> dict[bytes, RawCompound]:
