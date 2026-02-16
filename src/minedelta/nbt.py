@@ -1,5 +1,6 @@
 """Contains a special NBT parser used to compare nbt data as quickly as possible."""
 
+import contextlib
 import functools
 import io
 import struct
@@ -88,17 +89,17 @@ def _py_compare_nbt(buffer1: bytes, buffer2: bytes, is_chunk: bool) -> bool:
     this_nbt = load_nbt_raw(buffer1)
     other_nbt = load_nbt_raw(buffer2)
     if is_chunk:
-        other_nbt[b"LastUpdate"] = this_nbt[b"LastUpdate"]  # type: ignore[index]
+        this_nbt.pop(b"LastUpdate", None)
+        other_nbt.pop(b"LastUpdate", None)
     return this_nbt == other_nbt
 
 
-try:
-    import rapidnbt
-except ImportError:
-    compare_nbt = _py_compare_nbt
-else:
+compare_nbt = _py_compare_nbt
 
-    def compare_nbt(left: bytes, right: bytes, is_chunk: bool) -> bool:
+with contextlib.suppress(ImportError):
+    import rapidnbt
+
+    def _rapid_compare_nbt(left: bytes, right: bytes, is_chunk: bool) -> bool:
         """Compare two NBT files."""
         this_nbt = rapidnbt.nbtio.loads(left, rapidnbt.NbtFileFormat.BIG_ENDIAN)
         other_nbt = rapidnbt.nbtio.loads(right, rapidnbt.NbtFileFormat.BIG_ENDIAN)
@@ -108,3 +109,11 @@ else:
             this_nbt.pop("LastUpdate")
             other_nbt.pop("LastUpdate")
         return this_nbt == other_nbt
+
+    compare_nbt = _rapid_compare_nbt
+
+
+with contextlib.suppress(ImportError):
+    from nbtcompare import compare as _rust_compare_nbt
+
+    compare_nbt = _rust_compare_nbt
