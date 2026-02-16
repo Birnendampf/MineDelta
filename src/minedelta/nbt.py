@@ -38,7 +38,10 @@ def _get_raw_list(stream: io.BytesIO) -> bytes | list[RawCompound]:
 
     # TAG_LUT[tag_id] can't be none at this point but mypy doesn't know that. This is a hot code
     # path so a cast is used instead of assert because it's faster at runtime
-    parse_func = cast("_parse_func_type", TAG_LUT[tag_id])
+    try:
+        parse_func = cast("_parse_func_type", TAG_LUT[tag_id])
+    except IndexError:
+        raise ValueError(f"Unknown tag id in List: {tag_id}") from None
     return [parse_func(stream) for _ in range(size)]
 
 
