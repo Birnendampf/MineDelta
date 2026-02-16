@@ -71,9 +71,16 @@ TAG_LUT.extend(
 
 
 def load_nbt_raw(data: bytes) -> dict[bytes, RawCompound]:
-    """Get the overall structure of a nbt file, while parsing as little of it as possible."""
-    if data[0] != 10:
-        raise ValueError("Root TAG is not Compound")
+    """Get the overall structure of a nbt file, while parsing as little of it as possible.
+
+    Raises:
+        EOFError: Unexpected end of file.
+    """
+    try:
+        if data[0] != 10:
+            raise ValueError("Root TAG is not Compound")
+    except IndexError:
+        raise EOFError("Unexpected EOF") from None
 
     stream = io.BytesIO(data)
     stream.read(1)  # Skip root tag
