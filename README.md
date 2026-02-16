@@ -1,3 +1,6 @@
+> [!WARNING]
+> This project is still in early stages of development and should not be used just yet
+
 # MineDelta Backup Utility
 
 > Why store everything when you can just store only the chunks that changed?

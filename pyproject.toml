@@ -6,12 +6,16 @@ description = "(UNOFFICIAL) Minecraft Server Backup System"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-keywords = ["Minecraft", "Minecraft server", "differential backup", "backup", "versioning"]
+authors = [
+    { name = "Pearsteam", email = "93873756+Birnendampf@users.noreply.github.com" }
+]
+keywords = ["minecraft", "minecraft server", "differential backup", "backup", "versioning"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: End Users/Desktop",
     "Intended Audience :: System Administrators",
     "Operating System :: OS Independent",
+    "Topic :: System :: Archiving",
     "Topic :: System :: Archiving :: Backup",
     "Topic :: Games/Entertainment",
     "Topic :: Utilities",
