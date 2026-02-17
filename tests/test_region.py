@@ -179,3 +179,40 @@ class TestDiffOperations:
             assert this._headers[0].unmodified
             check_chunk_at_idx_matches(this, 1, tag)
             assert this.density() == 1
+
+    @pytest.mark.parametrize("defragment", [True, False])
+    @pytest.mark.parametrize("added_size", [True, False])
+    def test_apply_diff(
+        self, dummy_region_file: Path, other_dummy: Path, defragment: bool, added_size: bool
+    ) -> None:
+        kept_tag = nbt.CompoundTag({"kept": True})
+        helpers.write_nbt_to_region_file(dummy_region_file, 0, 2, kept_tag)
+
+        overwrite_tag = nbt.CompoundTag({"kept": False, "fits": True})
+        helpers.write_nbt_to_region_file(other_dummy, 1, 10, overwrite_tag)  # overwrite + fits
+        helpers.write_nbt_to_region_file(dummy_region_file, 1, 2)
+
+        appended_tag = nbt.CompoundTag({"kept": False, "fits": False})
+        if added_size:  # overwrite + doesn't fit
+            helpers.write_nbt_to_region_file(other_dummy, 2, 10, appended_tag)
+        helpers.write_nbt_to_region_file(dummy_region_file, 3, 2)  # overwrite with not created
+        with region.RegionFile.open(other_dummy) as other:
+            other._headers[0].unmodified = True  # keep first
+            other.defragment()
+            with region.RegionFile.open(dummy_region_file) as this:
+                this.apply_diff(other, defragment)
+                assert (this.density() == 1) == defragment
+                for header in this._headers[:4]:
+                    assert not header.unmodified
+                check_chunk_at_idx_matches(this, 0, kept_tag)
+                assert this._headers[0].mtime == 1
+                check_chunk_at_idx_matches(this, 1, overwrite_tag)
+                assert this._headers[1].mtime == 10
+                if added_size:
+                    check_chunk_at_idx_matches(this, 2, appended_tag)
+                    assert this._headers[2].mtime == 10
+                else:
+                    assert this._headers[2].mtime == 0
+                    assert this._headers[2].not_created
+                assert this._headers[3].mtime == 0
+                assert this._headers[3].not_created
