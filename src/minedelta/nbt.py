@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import TypeAlias, cast
 
 RawCompound: TypeAlias = bytes | dict[bytes, "RawCompound"] | list["RawCompound"]
-_parse_func_type = Callable[[io.BytesIO], RawCompound]
+_parse_func_type: TypeAlias = Callable[[io.BytesIO], RawCompound]
 
 _U_SHORT = struct.Struct("!H")
 _U_INT = struct.Struct("!I")

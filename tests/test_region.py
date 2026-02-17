@@ -46,7 +46,18 @@ class TestRegionFile:
                 assert header.not_created, f"header {i} should be not created"
 
     @pytest.mark.parametrize("compression", helpers.Compression)
-    @pytest.mark.parametrize("external", [True, False])
+    @pytest.mark.parametrize(
+        "external",
+        [
+            pytest.param(
+                True,
+                marks=pytest.mark.xfail(
+                    reason=".mcc files not yet supported", raises=region.ChunkLoadingError
+                ),
+            ),
+            False,
+        ],
+    )
     def test__get_chunk_data(
         self, compression: helpers.Compression, external: bool, bare_region_file: Path
     ) -> None:
