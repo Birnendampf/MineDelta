@@ -2,6 +2,12 @@ version = 1
 revision = 3
 requires-python = ">=3.11"
 
+[manifest]
+members = [
+    "minedelta",
+    "nbtcompare",
+]
+
 [[package]]
 name = "dulwich"
 version = "1.0.0"
@@ -161,10 +167,14 @@ git = [
 lz4 = [
     { name = "lz4" },
 ]
+nbtcompare = [
+    { name = "nbtcompare" },
+]
 
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "nbtcompare" },
     { name = "ruff" },
 ]
 
@@ -173,13 +183,15 @@ requires-dist = [
     { name = "dulwich", marker = "extra == 'git'", specifier = ">=1.0.0" },
     { name = "lz4", marker = "extra == 'lz4'", specifier = ">=4.4.5" },
     { name = "msgspec", specifier = ">=0.20.0" },
+    { name = "nbtcompare", marker = "extra == 'nbtcompare'", editable = "NBTCompare" },
     { name = "typing-extensions", marker = "python_full_version < '3.12'", specifier = ">=4.5" },
 ]
-provides-extras = ["git", "lz4"]
+provides-extras = ["git", "lz4", "nbtcompare"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.19.1" },
+    { name = "nbtcompare", editable = "NBTCompare" },
     { name = "ruff", specifier = ">=0.14.14" },
 ]
 
@@ -278,6 +290,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/a2/6e/371856a3fb9d31ca8
 wheels = [
     { url = "https://files.pythonhosted.org/packages/79/7b/2c79738432f5c924bef5071f933bcc9efd0473bac3b4aa584a6f7c1c8df8/mypy_extensions-1.1.0-py3-none-any.whl", hash = "sha256:1be4cccdb0f2482337c4743e60421de3a356cd97508abadd57d47403e94f5505", size = 4963, upload-time = "2025-04-22T14:54:22.983Z" },
 ]
+
+[[package]]
+name = "nbtcompare"
+version = "0.1.0"
+source = { editable = "NBTCompare" }
 
 [[package]]
 name = "pathspec"
