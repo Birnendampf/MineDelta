@@ -41,9 +41,6 @@ git = [
 lz4 = [
     "lz4>=4.4.5",
 ]
-fast-compare = [
-    "nbtcompare",
-]
 
 [build-system]
 requires = ["uv_build>=0.9.9,<0.10.0"]
@@ -99,6 +96,3 @@ packages = "minedelta"
 [[tool.mypy.overrides]]
 module = ["dulwich.*", "lz4.*", "nbtcompare"]
 ignore_missing_imports = true
-
-[tool.uv.sources]
-nbtcompare = { git = "https://github.com/Birnendampf/NBTCompare" }
