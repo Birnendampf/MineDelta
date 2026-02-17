@@ -42,6 +42,12 @@ def other_dummy(tmp_path: Path, dummy_region_file_factory: RegionFactory) -> Pat
     return dummy_region_file_factory(tmp_path / "r.0.1.mca")
 
 
+def check_chunk_at_idx_matches(r: region.RegionFile, idx: int, tag: nbt.CompoundTag) -> None:
+    # noinspection PyProtectedMember
+    data = r._get_chunk_data(r._headers[idx])
+    assert nbt.nbtio.loads(data, nbt.NbtFileFormat.BIG_ENDIAN) == tag
+
+
 # noinspection PyTypeChecker
 class TestRegionFile:
     def test_open(self, tmp_path: Path) -> None:
@@ -58,9 +64,9 @@ class TestRegionFile:
         ):
             pass
         with (
-            open(mca_file, "rb", 0) as f,
+            open(mca_file, "rb", 0) as file,
             pytest.raises(PermissionError),
-            region.RegionFile(f.fileno()),
+            region.RegionFile(file.fileno()),
         ):
             pass
 
@@ -92,8 +98,7 @@ class TestRegionFile:
         tag = nbt.CompoundTag({"LastUpdate": 1, "SomeArray": bytearray(range(255))})
         helpers.write_nbt_to_region_file(bare_region_file, 0, 1, tag, compression, external)
         with region.RegionFile.open(bare_region_file) as r:
-            data = r._get_chunk_data(r._headers[0])
-            assert nbt.nbtio.loads(data, nbt.NbtFileFormat.BIG_ENDIAN) == tag
+            check_chunk_at_idx_matches(r, 0, tag)
 
     @pytest.mark.parametrize(
         ("timestamp", "last_update", "is_chunk"),
@@ -140,8 +145,7 @@ class TestRegionFile:
             assert r.density() == 0.75
             r.defragment()
             assert r.density() == 1
-            data = r._get_chunk_data(r._headers[0])
-            assert nbt.nbtio.loads(data, nbt.NbtFileFormat.BIG_ENDIAN) == tag
+            check_chunk_at_idx_matches(r, 0, tag)
 
     def test_overlapping_chunks(self, dummy_region_file: Path) -> None:
         helpers.write_nbt_to_region_file(dummy_region_file, 1, 1)
@@ -152,7 +156,7 @@ class TestRegionFile:
 
 
 # noinspection PyTypeChecker
-class TestFilterDiffDefragment:
+class TestDiffOperations:
     def test_identical(self, dummy_region_file: Path, other_dummy: Path) -> None:
         with (
             region.RegionFile.open(dummy_region_file) as this,
@@ -173,6 +177,5 @@ class TestFilterDiffDefragment:
         ):
             assert not this.filter_diff_defragment(other)
             assert this._headers[0].unmodified
-            data = this._get_chunk_data(this._headers[1])
-            assert nbt.nbtio.loads(data, nbt.NbtFileFormat.BIG_ENDIAN) == tag
+            check_chunk_at_idx_matches(this, 1, tag)
             assert this.density() == 1
