@@ -38,15 +38,21 @@ def _get_raw_list(stream: io.BytesIO) -> bytes | list[RawCompound]:
 
     # TAG_LUT[tag_id] can't be none at this point but mypy doesn't know that. This is a hot code
     # path so a cast is used instead of assert because it's faster at runtime
-    # noinspection PyUnnecessaryCast
-    parse_func = cast("_parse_func_type", TAG_LUT[tag_id])
+    try:
+        parse_func = cast("_parse_func_type", TAG_LUT[tag_id])
+    except IndexError:
+        raise ValueError(f"Unknown tag id in List: {tag_id}") from None
     return [parse_func(stream) for _ in range(size)]
 
 
 def _get_raw_compound(stream: io.BytesIO) -> dict[bytes, RawCompound]:
     result: dict[bytes, RawCompound] = {}
 
-    while parse_func := TAG_LUT[stream.read(1)[0]]:
+    while tag_id := stream.read(1)[0]:
+        try:
+            parse_func = cast("_parse_func_type", TAG_LUT[tag_id])
+        except IndexError:
+            raise ValueError("Unknown tag id in Compound") from None
         name_len = _U_SHORT.unpack(stream.read(2))[0]
         raw_name = stream.read(name_len)
         result[raw_name] = parse_func(stream)
@@ -71,23 +77,39 @@ TAG_LUT.extend(
 
 
 def load_nbt_raw(data: bytes) -> dict[bytes, RawCompound]:
-    """Get the overall structure of a nbt file, while parsing as little of it as possible."""
-    if data[0] != 10:
-        raise ValueError("Root TAG is not Compound")
+    """Get the overall structure of a nbt file, while parsing as little of it as possible.
 
+    Raises:
+        EOFError: Unexpected end of file.
+    """
     stream = io.BytesIO(data)
-    stream.read(1)  # Skip root tag
-    name_len = _U_SHORT.unpack(stream.read(2))[0]
-    stream.read(name_len)  # Skip root name
+    try:
+        if stream.read(1)[0] != 10:
+            raise ValueError("Root tag is not Compound")
 
-    return _get_raw_compound(stream)
+        name_len = _U_SHORT.unpack(stream.read(2))[0]
+        stream.read(name_len)  # Skip root name
+
+        return _get_raw_compound(stream)
+    except (IndexError, struct.error) as exc:
+        if not stream.read(1):
+            raise EOFError("Unexpected EOF") from exc
+        raise exc
 
 
-def _py_compare_nbt(buffer1: bytes, buffer2: bytes, is_chunk: bool) -> bool:
+def _load_add_exc_note(data: bytes, left: bool) -> dict[bytes, RawCompound]:
+    try:
+        return load_nbt_raw(data)
+    except Exception as exc:
+        exc.add_note(f"Occurred while parsing {'left' if left else 'right'}")
+        raise exc
+
+
+def _py_compare_nbt(left: bytes, right: bytes, exclude_last_update: bool = False) -> bool:
     """Compare two NBT files."""
-    this_nbt = load_nbt_raw(buffer1)
-    other_nbt = load_nbt_raw(buffer2)
-    if is_chunk:
+    this_nbt = _load_add_exc_note(left, True)
+    other_nbt = _load_add_exc_note(right, False)
+    if exclude_last_update:
         this_nbt.pop(b"LastUpdate", None)
         other_nbt.pop(b"LastUpdate", None)
     return this_nbt == other_nbt
