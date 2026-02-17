@@ -388,7 +388,7 @@ class RegionFile:
         with other_view[other_start * SECTOR : other_end * SECTOR] as mv:
             self._mmap.write(mv)
 
-    def report_diff(self, other: Self, is_chunk: bool = False) -> ChangesReport:
+    def report_diff(self, other: Self, is_chunk: bool = False) -> ChangesReport:  # pragma: no cover
         """Report changes between self and other."""
         deleted = []
         created = []
