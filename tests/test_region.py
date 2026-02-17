@@ -65,12 +65,13 @@ class TestRegionFile:
             pass
 
     def test_headers_empty(self, bare_region_file: Path) -> None:
-        with pytest.raises(RuntimeError), region.RegionFile.open(bare_region_file) as r, r:
-            pass
-        with region.RegionFile.open(bare_region_file) as r:
-            assert len(r._headers) == 1024
-            for i, header in enumerate(r._headers):
-                assert header.not_created, f"header {i} should be not created"
+        with open(bare_region_file, "r+b", 0) as f:
+            with region.RegionFile(f.fileno()) as r, pytest.raises(RuntimeError), r:
+                pass
+            with r:
+                assert len(r._headers) == 1024
+                for i, header in enumerate(r._headers):
+                    assert header.not_created, f"header {i} should be not created"
 
     @pytest.mark.parametrize("compression", helpers.Compression)
     @pytest.mark.parametrize(
