@@ -37,6 +37,11 @@ def dummy_region_file(dummy_region_file_factory: RegionFactory, tmp_path: Path) 
     return dummy_region_file_factory(tmp_path / "r.0.0.mca")
 
 
+@pytest.fixture
+def other_dummy(tmp_path: Path, dummy_region_file_factory: RegionFactory) -> Path:
+    return dummy_region_file_factory(tmp_path / "r.0.1.mca")
+
+
 # noinspection PyTypeChecker
 class TestRegionFile:
     def test_open(self, tmp_path: Path) -> None:
@@ -89,18 +94,16 @@ class TestRegionFile:
         timestamp: int,
         last_update: int,
         is_chunk: bool,
-        dummy_region_file_factory: RegionFactory,
-        tmp_path: Path,
+        dummy_region_file: Path,
+        other_dummy: Path,
     ) -> None:
         expected = timestamp == 1 or last_update == 1 or is_chunk
-        this_mca = dummy_region_file_factory(tmp_path / "r.0.0.mca")
-        other_mca = dummy_region_file_factory(tmp_path / "r.0.1.mca")
         helpers.write_nbt_to_region_file(
-            other_mca, 0, timestamp, nbt.CompoundTag({"LastUpdate": nbt.LongTag(last_update)})
+            other_dummy, 0, timestamp, nbt.CompoundTag({"LastUpdate": nbt.LongTag(last_update)})
         )
         with (
-            region.RegionFile.open(this_mca) as this,
-            region.RegionFile.open(other_mca) as other,
+            region.RegionFile.open(dummy_region_file) as this,
+            region.RegionFile.open(other_dummy) as other,
         ):
             assert expected == this._check_unchanged(
                 this._headers[0], other, other._headers[0], is_chunk

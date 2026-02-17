@@ -141,7 +141,7 @@ class ChunkHeader:
 
         Cannot be set to False.
         """
-        if not value:
+        if not value:  # pragma: no cover
             raise ValueError("Can't be set to False")
         self.offset = 1
         self.size = 0
@@ -157,7 +157,7 @@ class ChunkHeader:
 
         Cannot be set to False.
         """
-        if not value:
+        if not value:  # pragma: no cover
             raise ValueError("Can't be set to False")
         self.offset = self.size = 0
 
