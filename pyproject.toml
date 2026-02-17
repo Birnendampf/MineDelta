@@ -103,7 +103,7 @@ mypy-init-return = true
 
 [tool.mypy]
 strict = true
-packages = "minedelta"
+packages = ["minedelta", "nbtcompare"]
 
 [[tool.mypy.overrides]]
 module = ["dulwich.*", "lz4.*", "nbtcompare"]
