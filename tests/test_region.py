@@ -119,6 +119,18 @@ class TestRegionFile:
                 this._headers[0], other, other._headers[0], is_chunk
             )
 
+    def test__check_unchanged_different_length(
+        self, dummy_region_file: Path, other_dummy: Path
+    ) -> None:
+        helpers.write_nbt_to_region_file(
+            other_dummy, 0, 0, nbt.CompoundTag({"asd": nbt.LongTag(1)})
+        )
+        with (
+            region.RegionFile.open(dummy_region_file) as this,
+            region.RegionFile.open(other_dummy) as other,
+        ):
+            assert not this._check_unchanged(this._headers[0], other, other._headers[0], False)
+
     def test_density_defragment(self, dummy_region_file: Path) -> None:
         with region.RegionFile.open(dummy_region_file) as r:
             assert r.density() == 1
