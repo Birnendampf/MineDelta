@@ -131,3 +131,9 @@ def test_tag_types(
             right = wrap_in_compound(tag_type(right_arg))  # type: ignore[call-arg]
             assert not compare_func(left, right)
 
+
+@pytest.mark.parametrize("is_chunk", [True, False])
+def test_exclude_last_update(compare_func: CompareFunc, is_chunk: bool) -> None:
+    left = rapidnbt.CompoundTag({"LastUpdate": 1}).to_binary_nbt(False)
+    right = rapidnbt.CompoundTag({"LastUpdate": 0}).to_binary_nbt(False)
+    assert compare_func(left, right, is_chunk) == is_chunk
