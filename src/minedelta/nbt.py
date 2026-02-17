@@ -117,7 +117,7 @@ def _py_compare_nbt(left: bytes, right: bytes, exclude_last_update: bool = False
 
 try:
     from nbtcompare import compare as _rust_compare_nbt
-except ImportError:
+except ImportError:  # pragma: no cover
     compare_nbt = _py_compare_nbt
 else:
     compare_nbt = _rust_compare_nbt
