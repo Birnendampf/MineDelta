@@ -149,3 +149,30 @@ class TestRegionFile:
             r._headers[1].offset = 2
             with pytest.raises(region.CorruptedRegionError):
                 r.defragment()
+
+
+# noinspection PyTypeChecker
+class TestFilterDiffDefragment:
+    def test_identical(self, dummy_region_file: Path, other_dummy: Path) -> None:
+        with (
+            region.RegionFile.open(dummy_region_file) as this,
+            region.RegionFile.open(other_dummy) as other,
+        ):
+            assert this.filter_diff_defragment(other)
+            assert this._headers[0].unmodified
+            with pytest.raises(region.ChunkLoadingError):
+                this._get_chunk_data(this._headers[0])
+            assert this.density() == 1
+
+    def test_not_identical(self, dummy_region_file: Path, other_dummy: Path) -> None:
+        tag = nbt.CompoundTag({"LastUpdate": nbt.LongTag(1), "hello": "world"})
+        helpers.write_nbt_to_region_file(dummy_region_file, 1, 1, tag)
+        with (
+            region.RegionFile.open(dummy_region_file) as this,
+            region.RegionFile.open(other_dummy) as other,
+        ):
+            assert not this.filter_diff_defragment(other)
+            assert this._headers[0].unmodified
+            data = this._get_chunk_data(this._headers[1])
+            assert nbt.nbtio.loads(data, nbt.NbtFileFormat.BIG_ENDIAN) == tag
+            assert this.density() == 1
