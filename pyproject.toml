@@ -41,8 +41,8 @@ git = [
 lz4 = [
     "lz4>=4.4.5",
 ]
-fast-compare = [
-    "nbtcompare",
+nbtcompare = [
+    "nbtcompare==0.1.0",
 ]
 
 [build-system]
@@ -52,8 +52,17 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "mypy>=1.19.1",
+    "nbtcompare",
     "ruff>=0.14.14",
 ]
+
+[tool.uv.workspace]
+members = [
+    "NBTCompare",
+]
+
+[tool.uv.sources]
+nbtcompare = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -94,11 +103,8 @@ mypy-init-return = true
 
 [tool.mypy]
 strict = true
-packages = "minedelta"
+packages = ["minedelta", "nbtcompare"]
 
 [[tool.mypy.overrides]]
 module = ["dulwich.*", "lz4.*", "nbtcompare"]
 ignore_missing_imports = true
-
-[tool.uv.sources]
-nbtcompare = { git = "https://github.com/Birnendampf/NBTCompare" }

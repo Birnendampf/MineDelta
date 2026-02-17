@@ -2,6 +2,12 @@ version = 1
 revision = 3
 requires-python = ">=3.11"
 
+[manifest]
+members = [
+    "minedelta",
+    "nbtcompare",
+]
+
 [[package]]
 name = "dulwich"
 version = "1.0.0"
@@ -155,19 +161,20 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-fast-compare = [
-    { name = "nbtcompare" },
-]
 git = [
     { name = "dulwich" },
 ]
 lz4 = [
     { name = "lz4" },
 ]
+nbtcompare = [
+    { name = "nbtcompare" },
+]
 
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "nbtcompare" },
     { name = "ruff" },
 ]
 
@@ -176,14 +183,15 @@ requires-dist = [
     { name = "dulwich", marker = "extra == 'git'", specifier = ">=1.0.0" },
     { name = "lz4", marker = "extra == 'lz4'", specifier = ">=4.4.5" },
     { name = "msgspec", specifier = ">=0.20.0" },
-    { name = "nbtcompare", marker = "extra == 'fast-compare'", git = "https://github.com/Birnendampf/NBTCompare" },
+    { name = "nbtcompare", marker = "extra == 'nbtcompare'", editable = "NBTCompare" },
     { name = "typing-extensions", marker = "python_full_version < '3.12'", specifier = ">=4.5" },
 ]
-provides-extras = ["git", "lz4", "fast-compare"]
+provides-extras = ["git", "lz4", "nbtcompare"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.19.1" },
+    { name = "nbtcompare", editable = "NBTCompare" },
     { name = "ruff", specifier = ">=0.14.14" },
 ]
 
@@ -286,7 +294,7 @@ wheels = [
 [[package]]
 name = "nbtcompare"
 version = "0.1.0"
-source = { git = "https://github.com/Birnendampf/NBTCompare#bc6277fb801a97393e0e26fcd8ce6c323f184c52" }
+source = { editable = "NBTCompare" }
 
 [[package]]
 name = "pathspec"
