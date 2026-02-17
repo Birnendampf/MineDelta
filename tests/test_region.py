@@ -1,11 +1,15 @@
 import shutil
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeAlias
 
 import pytest
 import rapidnbt as nbt
 
 from minedelta import region
 from tests import helpers
+
+RegionFactory: TypeAlias = Callable[[Path], Path]
 
 
 @pytest.fixture
@@ -15,13 +19,22 @@ def bare_region_file(tmp_path: Path) -> Path:
     return mca_file
 
 
-@pytest.fixture
-def dummy_region_file(bare_region_file: Path) -> Path:
+@pytest.fixture(scope="session")
+def dummy_region_file_factory(tmp_path_factory: pytest.TempPathFactory) -> RegionFactory:
     """generate a dummy region file with one chunk"""
-    helpers.write_nbt_to_region_file(
-        bare_region_file, 0, 1, nbt.CompoundTag({"LastUpdate": nbt.LongTag(1)})
-    )
-    return bare_region_file
+    mca_file = tmp_path_factory.getbasetemp() / "r.0.0.mca"
+    helpers.generate_bare_region_file(mca_file)
+    helpers.write_nbt_to_region_file(mca_file, 0, 1)
+
+    def dummy_region_file(path: Path) -> Path:
+        return shutil.copyfile(mca_file, path)
+
+    return dummy_region_file
+
+
+@pytest.fixture
+def dummy_region_file(dummy_region_file_factory: RegionFactory, tmp_path: Path) -> Path:
+    return dummy_region_file_factory(tmp_path / "r.0.0.mca")
 
 
 # noinspection PyTypeChecker
@@ -76,17 +89,17 @@ class TestRegionFile:
         timestamp: int,
         last_update: int,
         is_chunk: bool,
-        dummy_region_file: Path,
+        dummy_region_file_factory: RegionFactory,
         tmp_path: Path,
     ) -> None:
         expected = timestamp == 1 or last_update == 1 or is_chunk
-
-        other_mca = shutil.copyfile(dummy_region_file, tmp_path / "r.0.1.mca")
+        this_mca = dummy_region_file_factory(tmp_path / "r.0.0.mca")
+        other_mca = dummy_region_file_factory(tmp_path / "r.0.1.mca")
         helpers.write_nbt_to_region_file(
             other_mca, 0, timestamp, nbt.CompoundTag({"LastUpdate": nbt.LongTag(last_update)})
         )
         with (
-            region.RegionFile.open(dummy_region_file) as this,
+            region.RegionFile.open(this_mca) as this,
             region.RegionFile.open(other_mca) as other,
         ):
             assert expected == this._check_unchanged(
