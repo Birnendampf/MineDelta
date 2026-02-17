@@ -34,12 +34,13 @@ def write_nbt_to_region_file(  # noqa: PLR0913
     path: Path,
     idx: int,
     timestamp: int,
-    tag: rapidnbt.CompoundTag,
+    tag: rapidnbt.CompoundTag | None = None,
     compression: Compression = Compression.ZLIB,
     external: bool = False,
 ) -> None:
     """Write a compound tag to region file."""
     payload: bytes
+    tag = tag or rapidnbt.CompoundTag({"LastUpdate": rapidnbt.LongTag(1)})
     if compression is Compression.LZ4:
         payload = lz4.frame.compress(
             rapidnbt.nbtio.dumps(
