@@ -96,3 +96,8 @@ packages = "minedelta"
 [[tool.mypy.overrides]]
 module = ["dulwich.*", "lz4.*", "nbtcompare"]
 ignore_missing_imports = true
+
+[tool.uv.workspace]
+members = [
+    "NBTCompare",
+]

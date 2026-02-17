@@ -1,0 +1,22 @@
+[project]
+name = "nbtcompare"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Pearsteam", email = "93873756+Birnendampf@users.noreply.github.com" }
+]
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.maturin]
+module-name = "nbtcompare._core"
+python-packages = ["nbtcompare"]
+python-source = "src"
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
