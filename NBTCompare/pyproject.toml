@@ -1,13 +1,31 @@
 [project]
 name = "nbtcompare"
 version = "0.1.0"
-description = "Add your description here"
+description = "compare NBT data as quickly as possible"
+requires-python = ">=3.11"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Pearsteam", email = "93873756+Birnendampf@users.noreply.github.com" }
 ]
-requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Free Threading :: 4 - Resilient",
+    "Programming Language :: Rust",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
 dependencies = []
+
+[project.urls]
+Source = "https://github.com/Birnendampf/MineDelta"
 
 [tool.maturin]
 module-name = "nbtcompare._core"
@@ -18,5 +36,5 @@ python-source = "src"
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
 
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["maturin>=1.9.4,<2.0"]
 build-backend = "maturin"
