@@ -250,7 +250,7 @@ class RegionFile:
     def _get_chunk_data(self, header: ChunkHeader) -> bytes:
         start = header.offset * SECTOR
         if header.not_created or header.unmodified:
-            raise ValueError("Chunk not created or unmodified")
+            raise ChunkLoadingError("Chunk not created or unmodified")
         size, comp_type = self._chunk_heading_struct.unpack_from(self._mmap, start)
         start += 5  # actual chunk data starts here
         try:

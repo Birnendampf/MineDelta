@@ -105,3 +105,22 @@ class TestRegionFile:
             assert expected == this._check_unchanged(
                 this._headers[0], other, other._headers[0], is_chunk
             )
+
+    def test_density_defragment(self, dummy_region_file: Path) -> None:
+        with region.RegionFile.open(dummy_region_file) as r:
+            assert r.density() == 1
+        tag = nbt.CompoundTag({"LastUpdate": nbt.LongTag(1), "hello": "world"})
+        helpers.write_nbt_to_region_file(dummy_region_file, 0, 1, tag)
+        with region.RegionFile.open(dummy_region_file) as r:
+            assert r.density() == 0.75
+            r.defragment()
+            assert r.density() == 1
+            data = r._get_chunk_data(r._headers[0])
+            assert nbt.nbtio.loads(data, nbt.NbtFileFormat.BIG_ENDIAN) == tag
+
+    def test_overlapping_chunks(self, dummy_region_file: Path) -> None:
+        helpers.write_nbt_to_region_file(dummy_region_file, 1, 1)
+        with region.RegionFile.open(dummy_region_file) as r:
+            r._headers[1].offset = 2
+            with pytest.raises(region.CorruptedRegionError):
+                r.defragment()
