@@ -31,7 +31,7 @@ __all__ = [
     "RegionLoadingError",
 ]
 
-DECOMP_LUT: Final[dict[int, Callable[["ReadableBuffer"], bytes]]] = {3: lambda v: bytes(v)}
+DECOMP_LUT: Final[dict[int, Callable[["ReadableBuffer"], bytes]]] = {3: bytes}
 """chunk compression schemes according to https://minecraft.wiki/w/Region_file_format#Payload
 
 Documented but unsupported:
