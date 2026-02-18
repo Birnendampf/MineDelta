@@ -18,9 +18,9 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
       - name: run ruff
-        run: uv run --no-group test ruff check --output-format=github
+        run: uv run ruff check --output-format=github
       - name: run mypy
-        run: uv run --no-group test mypy
+        run: uv run mypy
   test:
     name: Test
     runs-on: ubuntu-latest
