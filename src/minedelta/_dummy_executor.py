@@ -1,12 +1,6 @@
-import sys
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import Executor, Future
 from typing import Any, ParamSpec, TypeVar
-
-if sys.version_info >= (3, 12):
-    pass
-else:
-    pass
 
 P = ParamSpec("P")
 T = TypeVar("T")

@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Annotated, Final, Self, TypeVar
 
 import msgspec
 
-from minedelta._dumy_executor import DummyExecutor
+from minedelta._dummy_executor import DummyExecutor
 from minedelta.region import RegionFile
 
 from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, BaseBackupManager, _noop
