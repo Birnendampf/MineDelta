@@ -12,3 +12,6 @@ wheels/
 # Rust build results
 target/
 *.so
+
+# coverage.py
+.coverage
