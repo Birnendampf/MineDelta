@@ -8,12 +8,12 @@ def some_func(arg: int, /, *, kwarg: int):
     return arg + kwarg
 
 
-class TestExceptionError(Exception):
+class SomeError(Exception):
     pass
 
 
 def raises():
-    raise TestExceptionError()
+    raise SomeError()
 
 
 class TestDummyExecutor:
@@ -21,7 +21,7 @@ class TestDummyExecutor:
         with _dummy_executor.DummyExecutor() as executor:
             submit = executor.submit(some_func, 1, kwarg=2)
             assert submit.result() == 3
-            with pytest.raises(TestExceptionError):
+            with pytest.raises(SomeError):
                 executor.submit(raises)
 
     def test_map(self):
