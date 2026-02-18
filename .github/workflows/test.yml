@@ -18,9 +18,9 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
       - name: run ruff
-        run: uv run ruff check --output-format=github
+        run: uv run --no-group test ruff check --output-format=github
       - name: run mypy
-        run: uv run mypy
+        run: uv run --no-group test mypy
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
       - name: run pytest
-        run: uv run pytest --cov --cov-report=xml
+        run: uv run --no-group lint pytest --cov --cov-report=xml
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
