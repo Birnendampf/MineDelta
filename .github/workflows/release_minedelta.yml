@@ -31,6 +31,7 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
     environment: pypi-minedelta
     needs: build
     permissions:
@@ -49,15 +50,12 @@ jobs:
         with:
           subject-path: 'wheels/*'
       - name: Install uv
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: astral-sh/setup-uv@v7
       - name: Publish to PyPI
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: uv publish 'wheels/*'
         env:
           UV_PUBLISH_URL: https://test.pypi.org/legacy/
       - name: Upload to GitHub Release
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v1
         with:
           generate_release_notes: true
