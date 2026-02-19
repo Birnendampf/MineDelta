@@ -1,6 +1,6 @@
 [project]
 name = "nbtcompare"
-version = "0.2.0"
+version = "0.1.0"
 description = "compare NBT data as quickly as possible"
 requires-python = ">=3.11"
 readme = "README.md"
