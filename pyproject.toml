@@ -11,7 +11,7 @@ authors = [
 ]
 keywords = ["minecraft", "minecraft server", "differential backup", "backup", "versioning"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: End Users/Desktop",
     "Intended Audience :: System Administrators",
     "Operating System :: OS Independent",
@@ -41,8 +41,13 @@ git = [
 lz4 = [
     "lz4>=4.4.5",
 ]
-nbtcompare = [
-    "nbtcompare==0.1.1",
+fast = [
+    "nbtcompare==0.1.0",
+]
+standard = [
+    "dulwich>=1.0.0",
+    "lz4>=4.4.5",
+    "nbtcompare==0.1.0",
 ]
 
 [build-system]

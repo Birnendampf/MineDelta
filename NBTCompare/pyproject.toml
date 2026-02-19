@@ -1,6 +1,6 @@
 [project]
 name = "nbtcompare"
-version = "0.1.1"
+version = "0.1.0"
 description = "compare NBT data as quickly as possible"
 requires-python = ">=3.11"
 readme = "README.md"
@@ -10,7 +10,7 @@ authors = [
     { name = "Pearsteam", email = "93873756+Birnendampf@users.noreply.github.com" }
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",

@@ -100,7 +100,7 @@ sorry.
 ## Benchmark
 
 Very irreproducible at the moment. will publish benchmarking code soon. Tested on Ryzen 7 7800X3D,
-Linux Mint 22.3, Linux 6.8.0-100
+Linux Mint 22.3, Linux 6.8.0-100, Python 3.11.13
 
 ```mermaid
 ---

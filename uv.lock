@@ -329,13 +329,18 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+fast = [
+    { name = "nbtcompare" },
+]
 git = [
     { name = "dulwich" },
 ]
 lz4 = [
     { name = "lz4" },
 ]
-nbtcompare = [
+standard = [
+    { name = "dulwich" },
+    { name = "lz4" },
     { name = "nbtcompare" },
 ]
 
@@ -355,12 +360,15 @@ lint = [
 [package.metadata]
 requires-dist = [
     { name = "dulwich", marker = "extra == 'git'", specifier = ">=1.0.0" },
+    { name = "dulwich", marker = "extra == 'standard'", specifier = ">=1.0.0" },
     { name = "lz4", marker = "extra == 'lz4'", specifier = ">=4.4.5" },
+    { name = "lz4", marker = "extra == 'standard'", specifier = ">=4.4.5" },
     { name = "msgspec", specifier = ">=0.20.0" },
-    { name = "nbtcompare", marker = "extra == 'nbtcompare'", editable = "NBTCompare" },
+    { name = "nbtcompare", marker = "extra == 'fast'", editable = "NBTCompare" },
+    { name = "nbtcompare", marker = "extra == 'standard'", editable = "NBTCompare" },
     { name = "typing-extensions", marker = "python_full_version < '3.12'", specifier = ">=4.5" },
 ]
-provides-extras = ["git", "lz4", "nbtcompare"]
+provides-extras = ["git", "lz4", "fast", "standard"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -473,7 +481,7 @@ wheels = [
 
 [[package]]
 name = "nbtcompare"
-version = "0.1.1"
+version = "0.1.0"
 source = { editable = "NBTCompare" }
 
 [[package]]
