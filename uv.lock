@@ -321,7 +321,7 @@ wheels = [
 
 [[package]]
 name = "minedelta"
-version = "0.0.1"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "msgspec" },
@@ -481,7 +481,7 @@ wheels = [
 
 [[package]]
 name = "nbtcompare"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "NBTCompare" }
 
 [[package]]
