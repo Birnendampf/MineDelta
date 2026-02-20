@@ -4,7 +4,7 @@ import functools
 import io
 import struct
 from collections.abc import Callable
-from typing import TypeAlias, cast
+from typing import TypeAlias
 
 RawCompound: TypeAlias = bytes | dict[bytes, "RawCompound"] | list["RawCompound"]
 _parse_func_type: TypeAlias = Callable[[io.BytesIO], RawCompound]
@@ -36,10 +36,8 @@ def _get_raw_list(stream: io.BytesIO) -> bytes | list[RawCompound]:
         arr_byte_len = tag_size * size
         return stream.read(arr_byte_len)
 
-    # TAG_LUT[tag_id] can't be none at this point but mypy doesn't know that. This is a hot code
-    # path so a cast is used instead of assert because it's faster at runtime
     try:
-        parse_func = cast("_parse_func_type", TAG_LUT[tag_id])
+        parse_func = TAG_LUT[tag_id - 1]
     except IndexError:
         raise ValueError(f"Unknown tag id in List: {tag_id}") from None
     return [parse_func(stream) for _ in range(size)]
@@ -50,9 +48,9 @@ def _get_raw_compound(stream: io.BytesIO) -> dict[bytes, RawCompound]:
 
     while tag_id := stream.read(1)[0]:
         try:
-            parse_func = cast("_parse_func_type", TAG_LUT[tag_id])
+            parse_func = TAG_LUT[tag_id - 1]
         except IndexError:
-            raise ValueError("Unknown tag id in Compound") from None
+            raise ValueError(f"Unknown tag id in Compound: {tag_id}") from None
         name_len = _U_SHORT.unpack(stream.read(2))[0]
         raw_name = stream.read(name_len)
         result[raw_name] = parse_func(stream)
@@ -62,18 +60,15 @@ def _get_raw_compound(stream: io.BytesIO) -> dict[bytes, RawCompound]:
 
 TAG_SIZE_LUT = [0, 1, 2, 4, 8, 4, 8]
 
-TAG_LUT: list[_parse_func_type | None] = [None]
-TAG_LUT.extend(functools.partial(_get_raw_numeric, size) for size in TAG_SIZE_LUT[1:])
-TAG_LUT.extend(
-    (
-        lambda stream: _get_raw_array(1, stream),  # byte_array
-        _get_raw_string,
-        _get_raw_list,
-        _get_raw_compound,
-        lambda stream: _get_raw_array(4, stream),  # int_array
-        lambda stream: _get_raw_array(8, stream),  # long_array
-    )
-)
+TAG_LUT: list[_parse_func_type] = [
+    *(functools.partial(_get_raw_numeric, size) for size in TAG_SIZE_LUT[1:]),
+    lambda stream: _get_raw_array(1, stream),  # byte_array
+    _get_raw_string,
+    _get_raw_list,
+    _get_raw_compound,
+    lambda stream: _get_raw_array(4, stream),  # int_array
+    lambda stream: _get_raw_array(8, stream),  # long_array
+]
 
 
 def load_nbt_raw(data: bytes) -> dict[bytes, RawCompound]:

@@ -54,7 +54,7 @@ class TestExceptions:
         if left_fault:
             left, right = right, left
         with pytest.raises(
-            ValueError, match="Unknown tag id in Compound" + self.get_exc_note(left_fault)
+            ValueError, match="Unknown tag id in Compound: 13" + self.get_exc_note(left_fault)
         ):
             compare_func(left, right)
 

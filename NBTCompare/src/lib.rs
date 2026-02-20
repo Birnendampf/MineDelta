@@ -10,20 +10,19 @@ enum RawCompound<'a> {
 }
 type ParseFuncType = for<'a> fn(&mut &'a [u8]) -> PyResult<RawCompound<'a>>;
 
-const TAG_LUT: [Option<ParseFuncType>; 13] = [
-    None,                       //  TAG_End
-    Some(get_raw_numeric::<1>), //  TAG_Byte
-    Some(get_raw_numeric::<2>), //  TAG_Short
-    Some(get_raw_numeric::<4>), //  TAG_Int
-    Some(get_raw_numeric::<8>), //  TAG_Long
-    Some(get_raw_numeric::<4>), //  TAG_Float
-    Some(get_raw_numeric::<8>), //  TAG_Double
-    Some(get_raw_array::<1>),   //  TAG_Byte_Array
-    Some(get_raw_string),       //  TAG_String
-    Some(get_raw_list),         //  TAG_List
-    Some(get_raw_compound),     //  TAG_Compound
-    Some(get_raw_array::<4>),   //  TAG_Int_Array
-    Some(get_raw_array::<8>),   //  TAG_Long_Array
+const TAG_LUT: [ParseFuncType; 12] = [
+    get_raw_numeric::<1>, //  TAG_Byte
+    get_raw_numeric::<2>, //  TAG_Short
+    get_raw_numeric::<4>, //  TAG_Int
+    get_raw_numeric::<8>, //  TAG_Long
+    get_raw_numeric::<4>, //  TAG_Float
+    get_raw_numeric::<8>, //  TAG_Double
+    get_raw_array::<1>,   //  TAG_Byte_Array
+    get_raw_string,       //  TAG_String
+    get_raw_list,         //  TAG_List
+    get_raw_compound,     //  TAG_Compound
+    get_raw_array::<4>,   //  TAG_Int_Array
+    get_raw_array::<8>,   //  TAG_Long_Array
 ];
 const TAG_SIZE_LUT: [u8; 7] = [0, 1, 2, 4, 8, 4, 8];
 
@@ -49,23 +48,20 @@ fn get_raw_string<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
 }
 
 fn get_raw_list<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
-    let tag_id = get_u8(data)?;
-    let size = u32::from_be_bytes(split_off_chunk(data)?);
+    let tag_id = get_u8(data)? as usize;
+    let size = u32::from_be_bytes(split_off_chunk(data)?) as usize;
     if tag_id < 7 {
-        let tag_size: usize = TAG_SIZE_LUT[tag_id as usize].into();
-        let arr_byte_len = tag_size
-            .checked_mul(size as usize)
-            .ok_or(PyOverflowError::new_err(
-                "Overflow when calculating list length \
+        let tag_size = TAG_SIZE_LUT[tag_id] as usize;
+        let arr_byte_len = tag_size.checked_mul(size).ok_or(PyOverflowError::new_err(
+            "Overflow when calculating list length \
             (consider using a 64 bit version of this package)",
-            ))?;
+        ))?;
         return Ok(RawCompound::Mem(split_off(data, arr_byte_len)?));
     }
     let parse_func = TAG_LUT
-        .get(tag_id as usize)
-        .ok_or_else(|| PyValueError::new_err(format!("Unknown tag id in List: {tag_id}")))?
-        .unwrap();
-    let mut res = Vec::with_capacity(size as usize);
+        .get(tag_id - 1)
+        .ok_or_else(|| PyValueError::new_err(format!("Unknown tag id in List: {tag_id}")))?;
+    let mut res = Vec::with_capacity(size);
     for _ in 0..size {
         res.push(parse_func(data)?)
     }
@@ -75,10 +71,14 @@ fn get_raw_list<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
 
 fn get_raw_compound<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
     let mut map = HashMap::new();
-    while let Some(parse_func) = TAG_LUT
-        .get(get_u8(data)? as usize)
-        .ok_or(PyValueError::new_err("Unknown tag id in Compound"))?
-    {
+    loop {
+        let tag_id = get_u8(data)?;
+        if tag_id == 0 {
+            break;
+        }
+        let parse_func = TAG_LUT.get(tag_id as usize - 1).ok_or_else(|| {
+            PyValueError::new_err(format!("Unknown tag id in Compound: {tag_id}"))
+        })?;
         let name_len = get_u16(data)?;
         let name = split_off(data, name_len.into())?;
         let compound = parse_func(data)?;
