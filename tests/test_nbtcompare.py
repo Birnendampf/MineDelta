@@ -89,7 +89,7 @@ ALL_TAGS = (
 )
 
 
-def wrap_in_compound(tag: rapidnbt.Tag) -> bytes:
+def wrap_in_compound(tag: rapidnbt.Tag | list[rapidnbt.Tag]) -> bytes:
     return rapidnbt.CompoundTag({"": tag}).to_binary_nbt(False)
 
 
@@ -99,6 +99,7 @@ def possible_values_id_fn(val: Any) -> str | None:  # noqa: ANN401
     return None
 
 
+@pytest.mark.parametrize("as_list", [True, False])
 @pytest.mark.parametrize(
     ("tag_type", "possible_values"),
     itertools.zip_longest(
@@ -117,18 +118,25 @@ def possible_values_id_fn(val: Any) -> str | None:  # noqa: ANN401
 def test_tag_types(
     tag_type: type[rapidnbt.Tag],
     possible_values: tuple[Any, ...],
+    as_list: bool,
     compare_func: CompareFunc,
     subtests: pytest.Subtests,
 ) -> None:
-    for value in possible_values:
+    possible_tags: tuple[list[rapidnbt.Tag], ...] | tuple[rapidnbt.Tag, ...]
+    if as_list:
+        possible_tags = tuple([tag_type(value)] for value in possible_values)  # type: ignore[call-arg]
+    else:
+        possible_tags = tuple(tag_type(value) for value in possible_values)  # type: ignore[call-arg]
+
+    for value in possible_tags:
         with subtests.test(msg="equal", value=value):
-            left = right = wrap_in_compound(tag_type(value))  # type: ignore[call-arg]
+            left = right = wrap_in_compound(value)
             assert compare_func(left, right)
 
-    for left_arg, right_arg in itertools.combinations(possible_values, 2):
+    for left_arg, right_arg in itertools.combinations(possible_tags, 2):
         with subtests.test(msg="inequal", left=left_arg, right=right_arg):
-            left = wrap_in_compound(tag_type(left_arg))  # type: ignore[call-arg]
-            right = wrap_in_compound(tag_type(right_arg))  # type: ignore[call-arg]
+            left = wrap_in_compound(left_arg)  # type: ignore[arg-type] # mypy does not understand
+            right = wrap_in_compound(right_arg)  # type: ignore[arg-type] # mypy does not understand
             assert not compare_func(left, right)
 
 
