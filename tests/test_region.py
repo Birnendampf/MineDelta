@@ -54,7 +54,7 @@ class TestRegionFile:
         mca_file = tmp_path / "r.0.0.mca"
         mca_file.touch()
         with pytest.raises(region.EmptyRegionError), region.RegionFile.open(mca_file):
-            pass
+            ...
 
         with mca_file.open("wb") as f:
             f.truncate(4096)
@@ -62,18 +62,18 @@ class TestRegionFile:
             pytest.raises(region.RegionLoadingError, match="Chunk headers appear truncated"),
             region.RegionFile.open(mca_file),
         ):
-            pass
+            ...
         with (
             open(mca_file, "rb", 0) as file,
             pytest.raises(PermissionError),
             region.RegionFile(file.fileno()),
         ):
-            pass
+            ...
 
     def test_headers_empty(self, bare_region_file: Path) -> None:
         with open(bare_region_file, "r+b", 0) as f:
             with region.RegionFile(f.fileno()) as r, pytest.raises(RuntimeError), r:
-                pass
+                ...
             with r:
                 assert len(r._headers) == 1024
                 for i, header in enumerate(r._headers):
