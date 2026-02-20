@@ -3,6 +3,10 @@
 
 # MineDelta Backup Utility
 
+[![codecov](https://codecov.io/gh/Birnendampf/MineDelta/graph/badge.svg?token=SL4PPPYOR8)](https://codecov.io/gh/Birnendampf/MineDelta)
+[![CI](https://github.com/Birnendampf/MineDelta/actions/workflows/test.yml/badge.svg)](https://github.com/Birnendampf/MineDelta/actions/workflows/test.yml)
+
+
 > Why store everything when you can just store only the chunks that changed?
 
 A differential backup utility for Minecraft worlds.
@@ -18,9 +22,8 @@ each with their own advantages and drawbacks ([see below](#comparison-between-ba
 ## Installation
 
 ```shell
-pipx install minedelta
+uvx install minedelta
 ```
-
 This will install only the package and its required dependencies.
 
 To be able to use the `diff` backup method on a server that has `region-file-compression = lz4` set
