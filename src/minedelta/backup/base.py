@@ -26,7 +26,7 @@ _id_T = TypeVar("_id_T", str, int)  # noqa: N816
 def _noop(_: Any) -> None: ...  # noqa: ANN401
 
 
-BACKUP_IGNORE: Final = ["datapacks", "session.lock", "DistantHorizons.sqlite", "icon.png"]
+BACKUP_IGNORE: Final = ["datapacks", "session.lock", "DistantHorizons.sqlite", "icon.png", ".git"]
 BACKUP_IGNORE_FROZENSET: Final = frozenset(BACKUP_IGNORE)
 
 

@@ -91,7 +91,7 @@ class GitBackupManager(BaseBackupManager[str]):
         need_link = True
         need_move = True
         if r is not None:
-            if Path(r.controldir()).resolve() == self._backup_dir.resolve():
+            if self._backup_dir.samefile(r.controldir()):
                 # repo exists and is where it is supposed to be
                 need_link = False
                 need_move = False
@@ -118,12 +118,12 @@ class GitBackupManager(BaseBackupManager[str]):
         with r:
             cfg = r.get_config()
 
-            cfg.set("user", "name", "NKI")
-            cfg.set("user", "email", f"NKI@{HOSTNAME}")
+            cfg.set("user", "name", "MineDelta")
+            cfg.set("user", "email", f"MineDelta@{HOSTNAME}")
             cfg.set("core", "preloadIndex", True)
             cfg.write_to_path()
 
-        (world / ".gitignore").write_text("\n".join(BACKUP_IGNORE) + "\n")
+        (self._backup_dir / "info" / "exclude").write_text("\n".join(BACKUP_IGNORE) + "\n")
 
     @override
     def create_backup(
