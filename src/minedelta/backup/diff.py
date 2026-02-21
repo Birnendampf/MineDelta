@@ -77,20 +77,6 @@ def _extract_to_temp(archive: "StrPath") -> Iterator[str]:
         yield extracted
 
 
-@contextlib.contextmanager
-def _extract_compress(archive: "StrPath") -> Iterator[str]:
-    """Extract archive into a temporary directory. recompress when exiting context.
-
-    Args:
-        archive: Archive to extract
-    Returns: Extracted archive
-    """
-    with _extract_to_temp(archive) as extracted:
-        yield extracted
-        with tarfile.open(archive, "w:gz") as tar:
-            tar.add(extracted, "")
-
-
 _PathT = TypeVar("_PathT", bound=PurePath)
 
 
@@ -184,28 +170,23 @@ class DiffBackupManager(BaseBackupManager[int]):
             with contextlib.ExitStack() as stack:
                 executor = stack.enter_context(_get_executor(executor))
                 backup_fut = executor.submit(self._compress_world, new_backup.name)
-                prev_world = stack.enter_context(
-                    _extract_compress(previous_backup_path)
-                    if isinstance(executor, DummyExecutor)
-                    else _extract_to_temp(previous_backup_path)
-                )
+                prev_world = stack.enter_context(_extract_to_temp(previous_backup_path))
 
                 progress(f'turning "{previous.id}" into diff')
                 previous.not_present = _filter_diff(
                     src=self._world, dest=prev_world, executor=executor, progress=progress
                 )
                 progress(f'recompressing "{previous.id}"')
-                if not isinstance(executor, DummyExecutor):
-                    new_previous = self._backup_dir / ("new_" + previous.name)
-                    with tarfile.open(new_previous, "w:gz") as tar:
-                        tar.add(prev_world, "")
-                    # make sure backup creation went well before overwriting previous
-                    try:
-                        backup_fut.result()
-                    except Exception as e:
-                        new_previous.unlink()
-                        raise e
-                    new_previous.replace(previous_backup_path)
+                new_previous = self._backup_dir / ("new_" + previous.name)
+                with tarfile.open(new_previous, "w:gz") as tar:
+                    tar.add(prev_world, "")
+                # make sure backup creation went well before overwriting previous
+                try:
+                    backup_fut.result()
+                except Exception as e:
+                    new_previous.unlink()
+                    raise e
+                new_previous.replace(previous_backup_path)
 
         backups_data.insert(0, new_backup)
         self._write_backups_data(backups_data)
