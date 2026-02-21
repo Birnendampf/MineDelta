@@ -104,6 +104,9 @@ def _partial_extract(
         temp_dir: Directory to extract to.
         backup_name: Name of backup to extract.
         skip: Set of paths to skip.
+
+    Returns:
+        the path of the extracted backup.
     """
 
     def custom_filter(member: tarfile.TarInfo, path: str) -> tarfile.TarInfo | None:
@@ -222,15 +225,13 @@ class DiffBackupManager(BaseBackupManager[int]):
         backups_data = self._load_backups_data_validate_idx(id_)
         progress(f'restoring backup "{backups_data[id_].id}"')
         backups_slice = backups_data[1 : id_ + 1]
-        with contextlib.ExitStack() as stack:
-            temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-            executor = stack.enter_context(_get_executor(executor))
-
+        with tempfile.TemporaryDirectory() as _temp_dir, _get_executor(executor) as ex:
+            temp_dir = Path(_temp_dir)
             tasks = []
             skip: frozenset[str] = frozenset()
             for backup in reversed(backups_slice):
                 tasks.append(
-                    executor.submit(_partial_extract, self._backup_dir, temp_dir, backup.name, skip)
+                    ex.submit(_partial_extract, self._backup_dir, temp_dir, backup.name, skip)
                 )
                 skip |= backup.not_present
             newest_backup = _partial_extract(self._backup_dir, temp_dir, backups_data[0].name, skip)
@@ -266,17 +267,16 @@ class DiffBackupManager(BaseBackupManager[int]):
         data_chosen = backups_data.pop(id_)
         progress(f'merging "{data_older.id}" into "{data_chosen.id}"')
         older_archive = self._backup_dir / data_older.name
-        with contextlib.ExitStack() as stack:
-            executor = stack.enter_context(_get_executor(executor))
-            temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-            chosen_fut = executor.submit(
+        with tempfile.TemporaryDirectory() as _temp_dir, _get_executor(executor) as ex:
+            temp_dir = Path(_temp_dir)
+            chosen_fut = ex.submit(
                 _partial_extract,
                 self._backup_dir,
                 temp_dir,
                 data_chosen.name,
                 data_older.not_present,
             )
-            older = stack.enter_context(_extract_to_temp(older_archive))
+            older = _partial_extract(self._backup_dir, temp_dir, data_older.name, ())
             chosen = chosen_fut.result()
             _apply_diff(src=older, dest=chosen, defragment=True)
             # handle the following situation (1 being deleted):
