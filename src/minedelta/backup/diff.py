@@ -30,7 +30,7 @@ else:
     from typing_extensions import override
 
 if TYPE_CHECKING:
-    from _typeshed import StrPath
+    from _typeshed import StrPath, Unused
 
 
 __all__ = ["MAX_WORKERS", "DiffBackupManager", "_convert_backup_data_to_json"]
@@ -92,10 +92,12 @@ def _extract_compress(archive: "StrPath") -> Iterator[str]:
             tar.add(extracted, "")
 
 
-_T = TypeVar("_T", bound="PurePath")
+_PathT = TypeVar("_PathT", bound=PurePath)
 
 
-def _partial_extract(backup_dir: Path, temp_dir: _T, backup_name: str, skip: Container[str]) -> _T:
+def _partial_extract(
+    backup_dir: Path, temp_dir: _PathT, backup_name: str, skip: Container[str]
+) -> _PathT:
     """Extract only paths not listed in `skip`.
 
     Args:
@@ -421,7 +423,7 @@ class _RegionFileCache:
         self._cached_regions[path] = new_region
         return new_region
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *_: "Unused") -> None:
         self._exit_stack.close()
         self._cached_regions.clear()
 
