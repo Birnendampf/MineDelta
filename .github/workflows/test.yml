@@ -19,6 +19,7 @@ jobs:
           python-version-file: ".python-version"
       - uses: astral-sh/setup-uv@v7
         with:
+          prune-cache: false
           cache-dependency-glob: |
             **/pyproject.toml
             **/uv.lock
@@ -26,11 +27,11 @@ jobs:
             NBTCompare/Cargo.toml
             NBTCompare/**/*.rs
       - name: run ruff
-        run: uv run -v ruff check --output-format=github
+        run: uv run -v --no-editable ruff check --output-format=github
       - name: run mypy
         run: uv run mypy
       - name: run pytest
-        run: uv run pytest --cov --cov-report=xml
+        run: uv run --no-editable pytest --cov --cov-report=xml
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
