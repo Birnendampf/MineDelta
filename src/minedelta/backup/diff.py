@@ -407,11 +407,10 @@ def _filter_region(src_file: Path, dest_file: Path, is_chunk: bool) -> Path:
 
 
 class _RegionFileCache:
-    __slots = ("_cached_regions", "_exit_stack")
+    __slots__ = ("_cached_regions",)
 
     def __init__(self) -> None:
         self._cached_regions: dict[Path, RegionFile] = {}
-        self._exit_stack = contextlib.ExitStack()
 
     def __enter__(self) -> Self:
         return self
@@ -419,13 +418,20 @@ class _RegionFileCache:
     def get(self, path: Path) -> RegionFile:
         with contextlib.suppress(KeyError):
             return self._cached_regions[path]
-        new_region = self._exit_stack.enter_context(RegionFile.open(path))
+        new_region = RegionFile.open(path).__enter__()
         self._cached_regions[path] = new_region
         return new_region
 
     def __exit__(self, *_: "Unused") -> None:
-        self._exit_stack.close()
+        exceptions: list[Exception] = []
+        for value in self._cached_regions.values():
+            try:
+                value.__exit__()
+            except Exception as e:
+                exceptions.append(e)
         self._cached_regions.clear()
+        if exceptions:
+            raise ExceptionGroup("Exceptions occured while trying to close Regions", exceptions)
 
 
 def _apply_diff(
