@@ -330,8 +330,11 @@ def _filter_diff(
     compare = filecmp.dircmp(src, dest, BACKUP_IGNORE)
     not_present = set()
     compare_stack = [("", compare)]
-    to_be_filtered: list[tuple[Path, Path, bool]] = []
-
+    filter_tasks = []
+    # filter region files
+    lazy_progress = (  # only compute relative path if necessary
+        _noop if progress is _noop else lambda path: progress(f"filtered {path.relative_to(src)}")
+    )
     while compare_stack:
         common_dir, compare = compare_stack.pop()
         compare_stack.extend(compare.subdirs.items())
@@ -351,28 +354,46 @@ def _filter_diff(
                 dest_file.unlink()
                 not_present.add(src_file.relative_to(src).as_posix())
                 continue
-            to_be_filtered.append((src_file, dest_file, common_dir == "region"))
+            filter_tasks.append(
+                executor.submit(
+                    _filter_region, src_file, dest_file, common_dir == "region", lazy_progress
+                )
+            )
 
-    # filter region files
-    lazy_progress = (  # only compute relative path if necessary
-        _noop if progress is _noop else lambda path: progress(f"filtered {path.relative_to(src)}")
-    )
-    tasks = [
-        executor.submit(_filter_region, src_file, dest_file, is_chunk)
-        for src_file, dest_file, is_chunk in to_be_filtered
-    ]
-    for task in concurrent.futures.as_completed(tasks):
-        lazy_progress(task.result())
+    _collect_filter_tasks(filter_tasks)
 
     return not_present
 
 
-def _filter_region(src_file: Path, dest_file: Path, is_chunk: bool) -> Path:
+def _collect_filter_tasks(tasks: list[concurrent.futures.Future[None]]) -> None:
+    done, not_done = concurrent.futures.wait(tasks, return_when=concurrent.futures.FIRST_EXCEPTION)
+    if not not_done:
+        return
+    # an exception occured
+    for fut in not_done:
+        fut.cancel()
+    is_base = False
+    exceptions = []
+    for fut in done:
+        if not (exception := fut.exception()):
+            continue
+        if not isinstance(exception, Exception):
+            is_base = True
+        exceptions.append(exception)
+    # mypy does not get this kind of narrowing
+    raise (BaseExceptionGroup if is_base else ExceptionGroup)(  # type: ignore[type-var]
+        "Exceptions occured while filtering Regions", exceptions
+    )
+
+
+def _filter_region(
+    src_file: Path, dest_file: Path, is_chunk: bool, progress: Callable[[Path], None]
+) -> None:
     with RegionFile.open(src_file) as new_region, RegionFile.open(dest_file) as old_region:
         unchanged = old_region.filter_diff_defragment(new_region, is_chunk)
         if unchanged:
             dest_file.unlink()
-    return src_file
+    progress(src_file)
 
 
 class _RegionFileCache:
