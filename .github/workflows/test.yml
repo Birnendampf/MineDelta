@@ -20,7 +20,7 @@ jobs:
           python-version-file: .python-version
       - uses: astral-sh/setup-uv@v7
       - name: run ruff
-        run: uv run -v ruff check --output-format=github
+        run: uv run ruff check --output-format=github
       - name: run mypy
         run: uv run mypy
   test:
