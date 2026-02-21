@@ -80,8 +80,8 @@ def _extract_to_temp(archive: "StrPath") -> Iterator[str]:
 _PathT = TypeVar("_PathT", bound=PurePath)
 
 
-def _partial_extract(
-    backup_dir: Path, temp_dir: _PathT, backup_name: str, skip: Container[str]
+def _extract_backup(
+    backup_dir: Path, temp_dir: _PathT, backup_name: str, skip: Container[str] | None = None
 ) -> _PathT:
     """Extract only paths not listed in `skip`.
 
@@ -94,11 +94,14 @@ def _partial_extract(
     Returns:
         the path of the extracted backup.
     """
+    if skip:
 
-    def custom_filter(member: tarfile.TarInfo, path: str) -> tarfile.TarInfo | None:
-        if member.name in skip:
-            return None
-        return tarfile.data_filter(member, path)
+        def custom_filter(member: tarfile.TarInfo, dest_path: str) -> tarfile.TarInfo | None:
+            if member.name in skip:
+                return None
+            return tarfile.data_filter(member, dest_path)
+    else:
+        custom_filter = tarfile.data_filter
 
     extracted = temp_dir / backup_name
     with tarfile.open(backup_dir / backup_name, "r:gz") as tar:
@@ -212,10 +215,10 @@ class DiffBackupManager(BaseBackupManager[int]):
             skip: frozenset[str] = frozenset()
             for backup in reversed(backups_slice):
                 tasks.append(
-                    ex.submit(_partial_extract, self._backup_dir, temp_dir, backup.name, skip)
+                    ex.submit(_extract_backup, self._backup_dir, temp_dir, backup.name, skip)
                 )
                 skip |= backup.not_present
-            newest_backup = _partial_extract(self._backup_dir, temp_dir, backups_data[0].name, skip)
+            newest_backup = _extract_backup(self._backup_dir, temp_dir, backups_data[0].name, skip)
             with _RegionFileCache() as region_file_cache:
                 for i, (backup_data, extract_task) in enumerate(
                     zip(backups_slice, reversed(tasks), strict=True), 1
@@ -251,13 +254,13 @@ class DiffBackupManager(BaseBackupManager[int]):
         with tempfile.TemporaryDirectory() as _temp_dir, _get_executor(executor) as ex:
             temp_dir = Path(_temp_dir)
             chosen_fut = ex.submit(
-                _partial_extract,
+                _extract_backup,
                 self._backup_dir,
                 temp_dir,
                 data_chosen.name,
                 data_older.not_present,
             )
-            older = _partial_extract(self._backup_dir, temp_dir, data_older.name, ())
+            older = _extract_backup(self._backup_dir, temp_dir, data_older.name)
             chosen = chosen_fut.result()
             _apply_diff(src=older, dest=chosen, defragment=True)
             # handle the following situation (1 being deleted):
