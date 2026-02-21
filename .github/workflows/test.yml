@@ -18,13 +18,6 @@ jobs:
         with:
           python-version-file: ".python-version"
       - uses: astral-sh/setup-uv@v7
-        with:
-          cache-dependency-glob: |
-            **/pyproject.toml
-            **/uv.lock
-            NBTCompare/Cargo.lock
-            NBTCompare/Cargo.toml
-            NBTCompare/**/*.rs
       - name: run ruff
         run: uv run -v ruff check --output-format=github
       - name: run mypy
