@@ -13,7 +13,7 @@ import sys
 import tarfile
 import tempfile
 import uuid
-from collections.abc import Callable, Container, Iterator
+from collections.abc import Callable, Container
 from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Annotated, Final, Self, TypeVar
 
@@ -66,15 +66,6 @@ class BackupData(msgspec.Struct, omit_defaults=True):
 
 _BackupDataENCODER: Final = msgspec.msgpack.Encoder(uuid_format="bytes")
 _BackupDataDECODER: Final = msgspec.msgpack.Decoder(list[BackupData])
-
-
-@contextlib.contextmanager
-def _extract_to_temp(archive: "StrPath") -> Iterator[str]:
-    """Extract archive into a temporary directory and return it."""
-    with tempfile.TemporaryDirectory() as extracted:
-        with tarfile.open(archive, "r:gz") as tar:
-            tar.extractall(extracted, filter="data")
-        yield extracted
 
 
 _PathT = TypeVar("_PathT", bound=PurePath)
@@ -166,38 +157,34 @@ class DiffBackupManager(BaseBackupManager[int]):
             backups_data = []
             previous = None
         progress("compressing world")
-        if not previous:
-            self._compress_world(new_backup.name)
-        else:
-            previous_backup_path = self._backup_dir / previous.name
-            with contextlib.ExitStack() as stack:
-                executor = stack.enter_context(_get_executor(executor))
-                backup_fut = executor.submit(self._compress_world, new_backup.name)
-                prev_world = stack.enter_context(_extract_to_temp(previous_backup_path))
-
-                progress(f'turning "{previous.id}" into diff')
-                previous.not_present = _filter_diff(
-                    src=self._world, dest=prev_world, executor=executor, progress=progress
-                )
-                progress(f'recompressing "{previous.id}"')
-                new_previous = self._backup_dir / ("new_" + previous.name)
-                with tarfile.open(new_previous, "w:gz") as tar:
-                    tar.add(prev_world, "")
-                # make sure backup creation went well before overwriting previous
-                try:
-                    backup_fut.result()
-                except Exception as e:
-                    new_previous.unlink()
-                    raise e
-                new_previous.replace(previous_backup_path)
+        with (
+            # create Temporary directory in backup dir to ensure replace succeeds
+            tempfile.TemporaryDirectory(dir=self._backup_dir) as _temp_dir,
+            _get_executor(executor) as ex,
+        ):
+            temp_dir = Path(_temp_dir)
+            new_backup_file = temp_dir / new_backup.name
+            with tarfile.open(new_backup_file, "x:gz") as new_tar:
+                backup_fut = ex.submit(new_tar.add, self._world, "", filter=_backup_filter)
+                if previous:
+                    prev_world = _extract_backup(self._backup_dir, temp_dir, previous.name)
+                    progress(f'turning "{previous.id}" into diff')
+                    previous.not_present = _filter_diff(
+                        src=self._world, dest=prev_world, executor=ex, progress=progress
+                    )
+                    progress(f'recompressing "{previous.id}"')
+                    new_previous = prev_world.with_suffix("new")
+                    with tarfile.open(new_previous, "x:gz") as prev_tar:
+                        prev_tar.add(prev_world, "")
+                # ensure backup creation went well before overwriting previous
+                backup_fut.result()
+            new_backup_file.replace(self._backup_dir / new_backup.name)
+            if previous:
+                new_previous.replace(self._backup_dir / previous.name)
 
         backups_data.insert(0, new_backup)
         self._write_backups_data(backups_data)
         return BackupInfo(timestamp, str(id_), description)
-
-    def _compress_world(self, name: str) -> None:
-        with tarfile.open(self._backup_dir / name, "x:gz") as tar:
-            tar.add(self._world, "", filter=_backup_filter)
 
     @override
     def restore_backup(
