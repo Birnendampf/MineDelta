@@ -197,7 +197,11 @@ class DiffBackupManager(BaseBackupManager[int]):
                     with tarfile.open(new_previous, "w:gz") as tar:
                         tar.add(prev_world, "")
                     # make sure backup creation went well before overwriting previous
-                    backup_fut.result()
+                    try:
+                        backup_fut.result()
+                    except Exception as e:
+                        new_previous.unlink()
+                        raise e
                     new_previous.replace(previous_backup_path)
 
         backups_data.insert(0, new_backup)
