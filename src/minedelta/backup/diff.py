@@ -442,7 +442,7 @@ def _apply_diff(
         for file in files:
             src_file = Path(dirpath, file)
             dest_file = dest_dirpath / file
-            if _should_apply_diff(dest_file, src_file):
+            if _should_apply_diff(src_file, dest_file):
                 dest_region_cm = (
                     contextlib.nullcontext(cache.get(dest_file))
                     if cache
@@ -454,7 +454,7 @@ def _apply_diff(
                 shutil.copy2(src_file, dest_file)
 
 
-def _should_apply_diff(dest_file: Path, src_file: Path) -> bool:
+def _should_apply_diff(src_file: Path, dest_file: Path) -> bool:
     if src_file.suffix != ".mca" or not src_file.stat().st_size:
         return False
     try:
