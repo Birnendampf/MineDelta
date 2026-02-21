@@ -13,7 +13,7 @@ import sys
 import tarfile
 import tempfile
 import uuid
-from collections.abc import Callable, Container, Iterator
+from collections.abc import Callable, Container
 from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Annotated, Final, Self, TypeVar
 
@@ -30,8 +30,7 @@ else:
     from typing_extensions import override
 
 if TYPE_CHECKING:
-    from _typeshed import StrPath
-
+    from _typeshed import StrPath, Unused
 
 __all__ = ["MAX_WORKERS", "DiffBackupManager", "_convert_backup_data_to_json"]
 
@@ -69,33 +68,12 @@ _BackupDataENCODER: Final = msgspec.msgpack.Encoder(uuid_format="bytes")
 _BackupDataDECODER: Final = msgspec.msgpack.Decoder(list[BackupData])
 
 
-@contextlib.contextmanager
-def _extract_to_temp(archive: "StrPath") -> Iterator[str]:
-    """Extract archive into a temporary directory and return it."""
-    with tempfile.TemporaryDirectory() as extracted:
-        with tarfile.open(archive, "r:gz") as tar:
-            tar.extractall(extracted, filter="data")
-        yield extracted
+_PathT = TypeVar("_PathT", bound=PurePath)
 
 
-@contextlib.contextmanager
-def _extract_compress(archive: "StrPath") -> Iterator[str]:
-    """Extract archive into a temporary directory. recompress when exiting context.
-
-    Args:
-        archive: Archive to extract
-    Returns: Extracted archive
-    """
-    with _extract_to_temp(archive) as extracted:
-        yield extracted
-        with tarfile.open(archive, "w:gz") as tar:
-            tar.add(extracted, "")
-
-
-_T = TypeVar("_T", bound="PurePath")
-
-
-def _partial_extract(backup_dir: Path, temp_dir: _T, backup_name: str, skip: Container[str]) -> _T:
+def _extract_backup(
+    backup_dir: Path, temp_dir: _PathT, backup_name: str, skip: Container[str] | None = None
+) -> _PathT:
     """Extract only paths not listed in `skip`.
 
     Args:
@@ -103,17 +81,33 @@ def _partial_extract(backup_dir: Path, temp_dir: _T, backup_name: str, skip: Con
         temp_dir: Directory to extract to.
         backup_name: Name of backup to extract.
         skip: Set of paths to skip.
-    """
 
-    def custom_filter(member: tarfile.TarInfo, path: str) -> tarfile.TarInfo | None:
-        if member.name in skip:
-            return None
-        return tarfile.data_filter(member, path)
+    Returns:
+        the path of the extracted backup.
+    """
+    if skip:
+
+        def custom_filter(member: tarfile.TarInfo, dest_path: str) -> tarfile.TarInfo | None:
+            if member.name in skip:
+                return None
+            return tarfile.data_filter(member, dest_path)
+    else:
+        custom_filter = tarfile.data_filter
 
     extracted = temp_dir / backup_name
     with tarfile.open(backup_dir / backup_name, "r:gz") as tar:
         tar.extractall(extracted, filter=custom_filter)  # noqa: S202
     return extracted
+
+
+def _get_executor(
+    executor: concurrent.futures.Executor | None,
+) -> contextlib.nullcontext[concurrent.futures.Executor] | concurrent.futures.Executor:
+    if executor:
+        return contextlib.nullcontext(executor)
+    if not MAX_WORKERS:
+        return DummyExecutor()
+    return _DefaultExecutor()
 
 
 class DiffBackupManager(BaseBackupManager[int]):
@@ -163,44 +157,34 @@ class DiffBackupManager(BaseBackupManager[int]):
             backups_data = []
             previous = None
         progress("compressing world")
-        if not previous:
-            self._compress_world(new_backup.name)
-        else:
-            previous_backup_path = self._backup_dir / previous.name
-            with contextlib.ExitStack() as stack:
-                if not executor:
-                    executor = (
-                        stack.enter_context(_DefaultExecutor(MAX_WORKERS))
-                        if MAX_WORKERS > 1
-                        else DummyExecutor()
+        with (
+            # create Temporary directory in backup dir to ensure replace succeeds
+            tempfile.TemporaryDirectory(dir=self._backup_dir) as _temp_dir,
+            _get_executor(executor) as ex,
+        ):
+            temp_dir = Path(_temp_dir)
+            new_backup_file = temp_dir / new_backup.name
+            with tarfile.open(new_backup_file, "x:gz") as new_tar:
+                backup_fut = ex.submit(new_tar.add, self._world, "", filter=_backup_filter)
+                if previous:
+                    prev_world = _extract_backup(self._backup_dir, temp_dir, previous.name)
+                    progress(f'turning "{previous.id}" into diff')
+                    previous.not_present = _filter_diff(
+                        src=self._world, dest=prev_world, executor=ex, progress=progress
                     )
-                backup_fut = executor.submit(self._compress_world, new_backup.name)
-                prev_world = stack.enter_context(
-                    _extract_compress(previous_backup_path)
-                    if isinstance(executor, DummyExecutor)
-                    else _extract_to_temp(previous_backup_path)
-                )
-
-                progress(f'turning "{previous.id}" into diff')
-                previous.not_present = _filter_diff(
-                    src=self._world, dest=prev_world, executor=executor, progress=progress
-                )
-                progress(f'recompressing "{previous.id}"')
-                if not isinstance(executor, DummyExecutor):
-                    new_previous = self._backup_dir / ("new_" + previous.name)
-                    with tarfile.open(new_previous, "w:gz") as tar:
-                        tar.add(prev_world, "")
-                    # make sure backup creation went well before overwriting previous
-                    backup_fut.result()
-                    new_previous.replace(previous_backup_path)
+                    progress(f'recompressing "{previous.id}"')
+                    new_previous = prev_world.with_suffix("new")
+                    with tarfile.open(new_previous, "x:gz") as prev_tar:
+                        prev_tar.add(prev_world, "")
+                # ensure backup creation went well before overwriting previous
+                backup_fut.result()
+            new_backup_file.replace(self._backup_dir / new_backup.name)
+            if previous:
+                new_previous.replace(self._backup_dir / previous.name)
 
         backups_data.insert(0, new_backup)
         self._write_backups_data(backups_data)
         return BackupInfo(timestamp, str(id_), description)
-
-    def _compress_world(self, name: str) -> None:
-        with tarfile.open(self._backup_dir / name, "x:gz") as tar:
-            tar.add(self._world, "", filter=_backup_filter)
 
     @override
     def restore_backup(
@@ -212,23 +196,16 @@ class DiffBackupManager(BaseBackupManager[int]):
         backups_data = self._load_backups_data_validate_idx(id_)
         progress(f'restoring backup "{backups_data[id_].id}"')
         backups_slice = backups_data[1 : id_ + 1]
-        with contextlib.ExitStack() as stack:
-            temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-            if not executor:
-                executor = (
-                    stack.enter_context(_DefaultExecutor(MAX_WORKERS))
-                    if MAX_WORKERS > 1 and id_
-                    else DummyExecutor()
-                )
-
+        with tempfile.TemporaryDirectory() as _temp_dir, _get_executor(executor) as ex:
+            temp_dir = Path(_temp_dir)
             tasks = []
             skip: frozenset[str] = frozenset()
             for backup in reversed(backups_slice):
                 tasks.append(
-                    executor.submit(_partial_extract, self._backup_dir, temp_dir, backup.name, skip)
+                    ex.submit(_extract_backup, self._backup_dir, temp_dir, backup.name, skip)
                 )
                 skip |= backup.not_present
-            newest_backup = _partial_extract(self._backup_dir, temp_dir, backups_data[0].name, skip)
+            newest_backup = _extract_backup(self._backup_dir, temp_dir, backups_data[0].name, skip)
             with _RegionFileCache() as region_file_cache:
                 for i, (backup_data, extract_task) in enumerate(
                     zip(backups_slice, reversed(tasks), strict=True), 1
@@ -261,22 +238,16 @@ class DiffBackupManager(BaseBackupManager[int]):
         data_chosen = backups_data.pop(id_)
         progress(f'merging "{data_older.id}" into "{data_chosen.id}"')
         older_archive = self._backup_dir / data_older.name
-        with contextlib.ExitStack() as stack:
-            if not executor:
-                executor = (
-                    stack.enter_context(_DefaultExecutor(MAX_WORKERS))
-                    if MAX_WORKERS > 1
-                    else DummyExecutor()
-                )
-            temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-            chosen_fut = executor.submit(
-                _partial_extract,
+        with tempfile.TemporaryDirectory() as _temp_dir, _get_executor(executor) as ex:
+            temp_dir = Path(_temp_dir)
+            chosen_fut = ex.submit(
+                _extract_backup,
                 self._backup_dir,
                 temp_dir,
                 data_chosen.name,
                 data_older.not_present,
             )
-            older = stack.enter_context(_extract_to_temp(older_archive))
+            older = _extract_backup(self._backup_dir, temp_dir, data_older.name)
             chosen = chosen_fut.result()
             _apply_diff(src=older, dest=chosen, defragment=True)
             # handle the following situation (1 being deleted):
@@ -359,8 +330,11 @@ def _filter_diff(
     compare = filecmp.dircmp(src, dest, BACKUP_IGNORE)
     not_present = set()
     compare_stack = [("", compare)]
-    to_be_filtered: list[tuple[Path, Path, bool]] = []
-
+    filter_tasks = []
+    # filter region files
+    lazy_progress = (  # only compute relative path if necessary
+        _noop if progress is _noop else lambda path: progress(f"filtered {path.relative_to(src)}")
+    )
     while compare_stack:
         common_dir, compare = compare_stack.pop()
         compare_stack.extend(compare.subdirs.items())
@@ -380,36 +354,53 @@ def _filter_diff(
                 dest_file.unlink()
                 not_present.add(src_file.relative_to(src).as_posix())
                 continue
-            to_be_filtered.append((src_file, dest_file, common_dir == "region"))
+            filter_tasks.append(
+                executor.submit(
+                    _filter_region, src_file, dest_file, common_dir == "region", lazy_progress
+                )
+            )
 
-    # filter region files
-    lazy_progress = (  # only compute relative path if necessary
-        _noop if progress is _noop else lambda path: progress(f"filtered {path.relative_to(src)}")
-    )
-    tasks = [
-        executor.submit(_filter_region, src_file, dest_file, is_chunk)
-        for src_file, dest_file, is_chunk in to_be_filtered
-    ]
-    for task in concurrent.futures.as_completed(tasks):
-        lazy_progress(task.result())
+    _collect_filter_tasks(filter_tasks)
 
     return not_present
 
 
-def _filter_region(src_file: Path, dest_file: Path, is_chunk: bool) -> Path:
+def _collect_filter_tasks(tasks: list[concurrent.futures.Future[None]]) -> None:
+    done, not_done = concurrent.futures.wait(tasks, return_when=concurrent.futures.FIRST_EXCEPTION)
+    if not not_done:
+        return
+    # an exception occured
+    for fut in not_done:
+        fut.cancel()
+    is_base = False
+    exceptions = []
+    for fut in done:
+        if not (exception := fut.exception()):
+            continue
+        if not isinstance(exception, Exception):
+            is_base = True
+        exceptions.append(exception)
+    # mypy does not get this kind of narrowing
+    raise (BaseExceptionGroup if is_base else ExceptionGroup)(  # type: ignore[type-var]
+        "Exceptions occured while filtering Regions", exceptions
+    )
+
+
+def _filter_region(
+    src_file: Path, dest_file: Path, is_chunk: bool, progress: Callable[[Path], None]
+) -> None:
     with RegionFile.open(src_file) as new_region, RegionFile.open(dest_file) as old_region:
         unchanged = old_region.filter_diff_defragment(new_region, is_chunk)
         if unchanged:
             dest_file.unlink()
-    return src_file
+    progress(src_file)
 
 
 class _RegionFileCache:
-    __slots = ("_cached_regions", "_exit_stack")
+    __slots__ = ("_cached_regions",)
 
     def __init__(self) -> None:
         self._cached_regions: dict[Path, RegionFile] = {}
-        self._exit_stack = contextlib.ExitStack()
 
     def __enter__(self) -> Self:
         return self
@@ -417,13 +408,20 @@ class _RegionFileCache:
     def get(self, path: Path) -> RegionFile:
         with contextlib.suppress(KeyError):
             return self._cached_regions[path]
-        new_region = self._exit_stack.enter_context(RegionFile.open(path))
+        new_region = RegionFile.open(path).__enter__()
         self._cached_regions[path] = new_region
         return new_region
 
-    def __exit__(self, *args: object) -> None:
-        self._exit_stack.close()
+    def __exit__(self, *_: "Unused") -> None:
+        exceptions: list[Exception] = []
+        for value in self._cached_regions.values():
+            try:
+                value.__exit__()
+            except Exception as e:
+                exceptions.append(e)
         self._cached_regions.clear()
+        if exceptions:
+            raise ExceptionGroup("Exceptions occured while trying to close Regions", exceptions)
 
 
 def _apply_diff(
@@ -440,7 +438,7 @@ def _apply_diff(
         for file in files:
             src_file = Path(dirpath, file)
             dest_file = dest_dirpath / file
-            if _should_apply_diff(dest_file, src_file):
+            if _should_apply_diff(src_file, dest_file):
                 dest_region_cm = (
                     contextlib.nullcontext(cache.get(dest_file))
                     if cache
@@ -452,7 +450,7 @@ def _apply_diff(
                 shutil.copy2(src_file, dest_file)
 
 
-def _should_apply_diff(dest_file: Path, src_file: Path) -> bool:
+def _should_apply_diff(src_file: Path, dest_file: Path) -> bool:
     if src_file.suffix != ".mca" or not src_file.stat().st_size:
         return False
     try:

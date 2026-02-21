@@ -15,10 +15,7 @@ from typing import TYPE_CHECKING, ClassVar, Final, Literal, NamedTuple, Self
 from .nbt import compare_nbt
 
 if TYPE_CHECKING:
-    from types import TracebackType
-
-    from _typeshed import ReadableBuffer, StrOrBytesPath, WriteableBuffer
-
+    from _typeshed import ReadableBuffer, StrOrBytesPath, Unused, WriteableBuffer
 
 __all__ = [
     "DECOMP_LUT",
@@ -207,12 +204,7 @@ class RegionFile:
             self.load_headers()
         return self
 
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: "TracebackType | None",
-    ) -> None:
+    def __exit__(self, *_: "Unused") -> None:
         """Write chunk headers back to the file and release the mapping."""
         self.dump_headers()
         self._mmap.close()
