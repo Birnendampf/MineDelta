@@ -32,7 +32,6 @@ else:
 if TYPE_CHECKING:
     from _typeshed import StrPath, Unused
 
-
 __all__ = ["MAX_WORKERS", "DiffBackupManager", "_convert_backup_data_to_json"]
 
 MCA_FOLDERS: Final = ("region", "entities", "poi")
@@ -118,6 +117,16 @@ def _partial_extract(
     return extracted
 
 
+def _get_executor(
+    executor: concurrent.futures.Executor | None,
+) -> contextlib.nullcontext[concurrent.futures.Executor] | concurrent.futures.Executor:
+    if executor:
+        return contextlib.nullcontext(executor)
+    if not MAX_WORKERS:
+        return DummyExecutor()
+    return _DefaultExecutor()
+
+
 class DiffBackupManager(BaseBackupManager[int]):
     """Manager to create backups that only store changed chunks.
 
@@ -170,12 +179,7 @@ class DiffBackupManager(BaseBackupManager[int]):
         else:
             previous_backup_path = self._backup_dir / previous.name
             with contextlib.ExitStack() as stack:
-                if not executor:
-                    executor = (
-                        stack.enter_context(_DefaultExecutor(MAX_WORKERS))
-                        if MAX_WORKERS > 1
-                        else DummyExecutor()
-                    )
+                executor = stack.enter_context(_get_executor(executor))
                 backup_fut = executor.submit(self._compress_world, new_backup.name)
                 prev_world = stack.enter_context(
                     _extract_compress(previous_backup_path)
@@ -216,12 +220,7 @@ class DiffBackupManager(BaseBackupManager[int]):
         backups_slice = backups_data[1 : id_ + 1]
         with contextlib.ExitStack() as stack:
             temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-            if not executor:
-                executor = (
-                    stack.enter_context(_DefaultExecutor(MAX_WORKERS))
-                    if MAX_WORKERS > 1 and id_
-                    else DummyExecutor()
-                )
+            executor = stack.enter_context(_get_executor(executor))
 
             tasks = []
             skip: frozenset[str] = frozenset()
@@ -264,12 +263,7 @@ class DiffBackupManager(BaseBackupManager[int]):
         progress(f'merging "{data_older.id}" into "{data_chosen.id}"')
         older_archive = self._backup_dir / data_older.name
         with contextlib.ExitStack() as stack:
-            if not executor:
-                executor = (
-                    stack.enter_context(_DefaultExecutor(MAX_WORKERS))
-                    if MAX_WORKERS > 1
-                    else DummyExecutor()
-                )
+            executor = stack.enter_context(_get_executor(executor))
             temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
             chosen_fut = executor.submit(
                 _partial_extract,
