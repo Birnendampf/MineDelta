@@ -16,6 +16,13 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
       - uses: astral-sh/setup-uv@v7
+        with:
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+            NBTCompare/Cargo.lock
+            NBTCompare/Cargo.toml
+            NBTCompare/**/*.rs
       - name: run ruff
         run: uv run -v ruff check --output-format=github
       - name: run mypy
