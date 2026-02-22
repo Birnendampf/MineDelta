@@ -105,7 +105,7 @@ def _get_executor(
 ) -> contextlib.nullcontext[concurrent.futures.Executor] | concurrent.futures.Executor:
     if executor:
         return contextlib.nullcontext(executor)
-    if not MAX_WORKERS:
+    if MAX_WORKERS == 1:
         return DummyExecutor()
     return _DefaultExecutor()
 
