@@ -169,7 +169,7 @@ class DiffBackupManager(BaseBackupManager[int]):
                 if previous:
                     prev_world = _extract_backup(self._backup_dir, temp_dir, previous.name)
                     progress(f'turning "{previous.id}" into diff')
-                    previous.not_present = _filter_diff(
+                    not_present = _filter_diff(
                         src=self._world, dest=prev_world, executor=ex, progress=progress
                     )
                     progress(f'recompressing "{previous.id}"')
@@ -180,6 +180,7 @@ class DiffBackupManager(BaseBackupManager[int]):
                 backup_fut.result()
             new_backup_file.replace(self._backup_dir / new_backup.name)
             if previous:
+                previous.not_present = not_present
                 new_previous.replace(self._backup_dir / previous.name)
 
         backups_data.insert(0, new_backup)
