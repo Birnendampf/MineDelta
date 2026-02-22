@@ -156,7 +156,6 @@ class DiffBackupManager(BaseBackupManager[int]):
         except (FileNotFoundError, IndexError):
             backups_data = []
             previous = None
-        progress("compressing world")
         with (
             # create Temporary directory in backup dir to ensure replace succeeds
             tempfile.TemporaryDirectory(dir=self._backup_dir) as _temp_dir,
@@ -165,6 +164,7 @@ class DiffBackupManager(BaseBackupManager[int]):
             temp_dir = Path(_temp_dir)
             new_backup_file = temp_dir / new_backup.name
             with tarfile.open(new_backup_file, "x:gz") as new_tar:
+                progress("compressing world")
                 backup_fut = ex.submit(new_tar.add, self._world, "", filter=_backup_filter)
                 if previous:
                     prev_world = _extract_backup(self._backup_dir, temp_dir, previous.name)
@@ -173,7 +173,7 @@ class DiffBackupManager(BaseBackupManager[int]):
                         src=self._world, dest=prev_world, executor=ex, progress=progress
                     )
                     progress(f'recompressing "{previous.id}"')
-                    new_previous = prev_world.with_suffix("new")
+                    new_previous = temp_dir / ("new_" + previous.name)
                     with tarfile.open(new_previous, "x:gz") as prev_tar:
                         prev_tar.add(prev_world, "")
                 # ensure backup creation went well before overwriting previous
