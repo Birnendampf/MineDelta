@@ -236,7 +236,8 @@ class DiffBackupManager(BaseBackupManager[int]):
             return
 
         data_older = backups_data[id_ + 1]
-        data_chosen = backups_data.pop(id_)
+        data_chosen = backups_data[id_]
+        chosen_not_present = data_chosen.not_present.copy()
         progress(f'merging "{data_older.id}" into "{data_chosen.id}"')
         older_archive = self._backup_dir / data_older.name
         with tempfile.TemporaryDirectory() as _temp_dir, _get_executor(executor) as ex:
@@ -256,9 +257,9 @@ class DiffBackupManager(BaseBackupManager[int]):
             # 0   | a0    |      |
             # 1   |       | -a   | a0
             # 2   | a0    | a0   | (deleted)
-            for file in data_chosen.not_present.copy():
+            for file in data_chosen.not_present:
                 if Path(older, file).exists():
-                    data_chosen.not_present.discard(file)
+                    chosen_not_present.discard(file)
             progress(f'recompressing "{data_chosen.id}"')
             with tarfile.open(older_archive, "w:gz") as tar:
                 tar.add(chosen, "")
@@ -271,9 +272,10 @@ class DiffBackupManager(BaseBackupManager[int]):
             # 2   |          d0 |    -b -c    d1->0 | (deleted)
             # note that -b is contained in the new diff, because we do not know that b0 was
             # deleted again at idx 0
-            data_older.not_present |= data_chosen.not_present
+            data_older.not_present |= chosen_not_present
         else:
             data_older.not_present.clear()
+        del backups_data[id_]
         self._write_backups_data(backups_data)
         (self._backup_dir / data_chosen.name).unlink()
 
