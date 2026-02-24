@@ -32,7 +32,7 @@ else:
 if TYPE_CHECKING:
     from _typeshed import StrPath, Unused
 
-__all__ = ["MAX_WORKERS", "DiffBackupManager", "_convert_backup_data_to_json"]
+__all__ = ["MAX_WORKERS", "DiffBackupManager"]
 
 MCA_FOLDERS: Final = ("region", "entities", "poi")
 
@@ -100,14 +100,22 @@ def _extract_backup(
     return extracted
 
 
+def _backup_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
+    """Filter for creating tarfiles that drops files from BACKUP_IGNORE."""
+    # using os.path because it is not worth it to create a Path just for this
+    if os.path.basename(tarinfo.name) in BACKUP_IGNORE_FROZENSET:  # noqa: PTH119
+        return None
+    return tarinfo
+
+
 def _get_executor(
     executor: concurrent.futures.Executor | None,
 ) -> contextlib.nullcontext[concurrent.futures.Executor] | concurrent.futures.Executor:
     if executor:
         return contextlib.nullcontext(executor)
-    if not MAX_WORKERS:
+    if MAX_WORKERS == 1:
         return DummyExecutor()
-    return _DefaultExecutor()
+    return _DefaultExecutor(max_workers=MAX_WORKERS)
 
 
 class DiffBackupManager(BaseBackupManager[int]):
@@ -156,7 +164,6 @@ class DiffBackupManager(BaseBackupManager[int]):
         except (FileNotFoundError, IndexError):
             backups_data = []
             previous = None
-        progress("compressing world")
         with (
             # create Temporary directory in backup dir to ensure replace succeeds
             tempfile.TemporaryDirectory(dir=self._backup_dir) as _temp_dir,
@@ -165,21 +172,23 @@ class DiffBackupManager(BaseBackupManager[int]):
             temp_dir = Path(_temp_dir)
             new_backup_file = temp_dir / new_backup.name
             with tarfile.open(new_backup_file, "x:gz") as new_tar:
+                progress("compressing world")
                 backup_fut = ex.submit(new_tar.add, self._world, "", filter=_backup_filter)
                 if previous:
                     prev_world = _extract_backup(self._backup_dir, temp_dir, previous.name)
                     progress(f'turning "{previous.id}" into diff')
-                    previous.not_present = _filter_diff(
+                    not_present = _filter_diff(
                         src=self._world, dest=prev_world, executor=ex, progress=progress
                     )
                     progress(f'recompressing "{previous.id}"')
-                    new_previous = prev_world.with_suffix("new")
+                    new_previous = temp_dir / ("new_" + previous.name)
                     with tarfile.open(new_previous, "x:gz") as prev_tar:
                         prev_tar.add(prev_world, "")
                 # ensure backup creation went well before overwriting previous
                 backup_fut.result()
             new_backup_file.replace(self._backup_dir / new_backup.name)
             if previous:
+                previous.not_present = not_present
                 new_previous.replace(self._backup_dir / previous.name)
 
         backups_data.insert(0, new_backup)
@@ -235,7 +244,8 @@ class DiffBackupManager(BaseBackupManager[int]):
             return
 
         data_older = backups_data[id_ + 1]
-        data_chosen = backups_data.pop(id_)
+        data_chosen = backups_data[id_]
+        chosen_not_present = data_chosen.not_present.copy()
         progress(f'merging "{data_older.id}" into "{data_chosen.id}"')
         older_archive = self._backup_dir / data_older.name
         with tempfile.TemporaryDirectory() as _temp_dir, _get_executor(executor) as ex:
@@ -255,10 +265,10 @@ class DiffBackupManager(BaseBackupManager[int]):
             # 0   | a0    |      |
             # 1   |       | -a   | a0
             # 2   | a0    | a0   | (deleted)
-            for file in data_chosen.not_present.copy():
+            for file in data_chosen.not_present:
                 if Path(older, file).exists():
-                    data_chosen.not_present.discard(file)
-            progress(f'recompressing "{data_chosen.id}"')
+                    chosen_not_present.discard(file)
+            progress(f'recompressing "{data_chosen.id}" as "{data_older.name}"')
             with tarfile.open(older_archive, "w:gz") as tar:
                 tar.add(chosen, "")
 
@@ -270,9 +280,10 @@ class DiffBackupManager(BaseBackupManager[int]):
             # 2   |          d0 |    -b -c    d1->0 | (deleted)
             # note that -b is contained in the new diff, because we do not know that b0 was
             # deleted again at idx 0
-            data_older.not_present |= data_chosen.not_present
+            data_older.not_present |= chosen_not_present
         else:
             data_older.not_present.clear()
+        del backups_data[id_]
         self._write_backups_data(backups_data)
         (self._backup_dir / data_chosen.name).unlink()
 
@@ -280,6 +291,8 @@ class DiffBackupManager(BaseBackupManager[int]):
     def list_backups(self) -> list[BackupInfo]:
         backups_data = self._load_backups_data()
         return [BackupInfo(data.timestamp, str(data.id), data.desc) for data in backups_data]
+
+    # Handling backup data
 
     def _load_backups_data(self) -> list[BackupData]:
         try:
@@ -292,6 +305,13 @@ class DiffBackupManager(BaseBackupManager[int]):
     def _write_backups_data(self, backups_data: list[BackupData]) -> None:
         self._backups_data_path.write_bytes(_BackupDataENCODER.encode(backups_data))
 
+    def write_backups_data_json(self) -> None:
+        """Convert the backups data to human readable JSON format."""
+        decoded = _BackupDataDECODER.decode(self._backups_data_path.read_bytes())
+        self._backups_data_path.with_suffix(".json").write_bytes(
+            msgspec.json.format(msgspec.json.encode(decoded, order="deterministic"))
+        )
+
     def _load_backups_data_validate_idx(self, idx: int) -> list[BackupData]:
         if idx < 0:
             raise IndexError("index must be >= 0")
@@ -301,12 +321,7 @@ class DiffBackupManager(BaseBackupManager[int]):
         return backup_infos
 
 
-def _backup_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
-    """Filter for creating tarfiles that drops files from BACKUP_IGNORE."""
-    # using os.path because it is not worth it to create a Path just for this
-    if os.path.basename(tarinfo.name) in BACKUP_IGNORE_FROZENSET:  # noqa: PTH119
-        return None
-    return tarinfo
+# FILTERING
 
 
 def _filter_diff(
@@ -323,9 +338,9 @@ def _filter_diff(
     Args:
         src: directory to compare against
         dest: directory to perform changes in
+        executor: Executor to use for filtering
         progress: Will be called with a string describing which anvil file is being filtered
-        executor: Executor to use for filtering or None for single threaded operation
-    Returns: list of files found in `src` but not `dest`
+    Returns: set of files found in `src` but not `dest`, relavtive to src
     """
     compare = filecmp.dircmp(src, dest, BACKUP_IGNORE)
     not_present = set()
@@ -396,6 +411,9 @@ def _filter_region(
     progress(src_file)
 
 
+# APPLYING
+
+
 class _RegionFileCache:
     __slots__ = ("_cached_regions",)
 
@@ -414,9 +432,9 @@ class _RegionFileCache:
 
     def __exit__(self, *_: "Unused") -> None:
         exceptions: list[Exception] = []
-        for value in self._cached_regions.values():
+        for region in self._cached_regions.values():
             try:
-                value.__exit__()
+                region.__exit__()
             except Exception as e:
                 exceptions.append(e)
         self._cached_regions.clear()
@@ -460,11 +478,3 @@ def _should_apply_diff(src_file: Path, dest_file: Path) -> bool:
         return False
 
     return True
-
-
-def _convert_backup_data_to_json(backup_data: "StrPath") -> None:
-    as_path = Path(backup_data)
-    decoded = _BackupDataDECODER.decode(as_path.read_bytes())
-    as_path.with_suffix(".json").write_bytes(
-        msgspec.json.format(msgspec.json.encode(decoded, order="deterministic"))
-    )

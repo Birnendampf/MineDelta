@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="Black">
-    <option name="pathToExecutable" value="$USER_HOME$/.local/bin/black" />
     <option name="sdkName" value="uv (MineDelta)" />
   </component>
   <component name="ProjectRootManager" version="2" project-jdk-name="uv (MineDelta)" project-jdk-type="Python SDK" />
