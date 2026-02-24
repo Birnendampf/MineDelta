@@ -93,13 +93,7 @@ def wrap_in_compound(tag: rapidnbt.Tag | list[rapidnbt.Tag]) -> bytes:
     return rapidnbt.CompoundTag({"": tag}).to_binary_nbt(False)
 
 
-def possible_values_id_fn(val: Any) -> str | None:  # noqa: ANN401
-    if isinstance(val, tuple):
-        return ""
-    return None
-
-
-@pytest.mark.parametrize("as_list", [True, False])
+@pytest.mark.parametrize("as_list", [True, False], ids=("List", pytest.HIDDEN_PARAM))  # type: ignore[arg-type]
 @pytest.mark.parametrize(
     ("tag_type", "possible_values"),
     itertools.zip_longest(
@@ -113,7 +107,7 @@ def possible_values_id_fn(val: Any) -> str | None:  # noqa: ANN401
         ),
         fillvalue=(0, 1),
     ),
-    ids=possible_values_id_fn,
+    ids=(tag.__name__ for tag in ALL_TAGS),
 )
 def test_tag_types(
     tag_type: type[rapidnbt.Tag],
