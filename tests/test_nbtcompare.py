@@ -123,14 +123,16 @@ def test_tag_types(
         possible_tags = tuple(tag_type(value) for value in possible_values)  # type: ignore[call-arg]
 
     for value in possible_tags:
-        with subtests.test(msg="equal", value=value):
+        with subtests.test(msg="equal", value=value.to_snbt(indent=0)):
             left = right = wrap_in_compound(value)
             assert compare_func(left, right)
 
     for left_arg, right_arg in itertools.combinations(possible_tags, 2):
-        with subtests.test(msg="inequal", left=left_arg, right=right_arg):
-            left = wrap_in_compound(left_arg)  # type: ignore[arg-type] # mypy does not understand
-            right = wrap_in_compound(right_arg)  # type: ignore[arg-type] # mypy does not understand
+        with subtests.test(
+            msg="inequal", left=left_arg.to_snbt(indent=0), right=right_arg.to_snbt(indent=0)
+        ):
+            left = wrap_in_compound(left_arg)
+            right = wrap_in_compound(right_arg)
             assert not compare_func(left, right)
 
 
