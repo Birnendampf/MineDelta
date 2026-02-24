@@ -260,7 +260,7 @@ class DiffBackupManager(BaseBackupManager[int]):
             for file in data_chosen.not_present:
                 if Path(older, file).exists():
                     chosen_not_present.discard(file)
-            progress(f'recompressing "{data_chosen.id}"')
+            progress(f'recompressing "{data_chosen.id}" as "{data_older.name}"')
             with tarfile.open(older_archive, "w:gz") as tar:
                 tar.add(chosen, "")
 
