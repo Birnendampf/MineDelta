@@ -107,7 +107,7 @@ def _get_executor(
         return contextlib.nullcontext(executor)
     if MAX_WORKERS == 1:
         return DummyExecutor()
-    return _DefaultExecutor()
+    return _DefaultExecutor(max_workers=MAX_WORKERS)
 
 
 class DiffBackupManager(BaseBackupManager[int]):
