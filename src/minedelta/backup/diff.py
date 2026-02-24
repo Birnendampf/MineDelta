@@ -100,6 +100,14 @@ def _extract_backup(
     return extracted
 
 
+def _backup_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
+    """Filter for creating tarfiles that drops files from BACKUP_IGNORE."""
+    # using os.path because it is not worth it to create a Path just for this
+    if os.path.basename(tarinfo.name) in BACKUP_IGNORE_FROZENSET:  # noqa: PTH119
+        return None
+    return tarinfo
+
+
 def _get_executor(
     executor: concurrent.futures.Executor | None,
 ) -> contextlib.nullcontext[concurrent.futures.Executor] | concurrent.futures.Executor:
@@ -284,6 +292,8 @@ class DiffBackupManager(BaseBackupManager[int]):
         backups_data = self._load_backups_data()
         return [BackupInfo(data.timestamp, str(data.id), data.desc) for data in backups_data]
 
+    # Handling backup data
+
     def _load_backups_data(self) -> list[BackupData]:
         try:
             return _BackupDataDECODER.decode(self._backups_data_path.read_bytes())
@@ -304,12 +314,7 @@ class DiffBackupManager(BaseBackupManager[int]):
         return backup_infos
 
 
-def _backup_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
-    """Filter for creating tarfiles that drops files from BACKUP_IGNORE."""
-    # using os.path because it is not worth it to create a Path just for this
-    if os.path.basename(tarinfo.name) in BACKUP_IGNORE_FROZENSET:  # noqa: PTH119
-        return None
-    return tarinfo
+# FILTERING
 
 
 def _filter_diff(
@@ -326,9 +331,9 @@ def _filter_diff(
     Args:
         src: directory to compare against
         dest: directory to perform changes in
+        executor: Executor to use for filtering
         progress: Will be called with a string describing which anvil file is being filtered
-        executor: Executor to use for filtering or None for single threaded operation
-    Returns: list of files found in `src` but not `dest`
+    Returns: set of files found in `src` but not `dest`, relavtive to src
     """
     compare = filecmp.dircmp(src, dest, BACKUP_IGNORE)
     not_present = set()
@@ -399,6 +404,9 @@ def _filter_region(
     progress(src_file)
 
 
+# APPLYING
+
+
 class _RegionFileCache:
     __slots__ = ("_cached_regions",)
 
@@ -417,9 +425,9 @@ class _RegionFileCache:
 
     def __exit__(self, *_: "Unused") -> None:
         exceptions: list[Exception] = []
-        for value in self._cached_regions.values():
+        for region in self._cached_regions.values():
             try:
-                value.__exit__()
+                region.__exit__()
             except Exception as e:
                 exceptions.append(e)
         self._cached_regions.clear()
