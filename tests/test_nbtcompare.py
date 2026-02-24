@@ -116,24 +116,31 @@ def test_tag_types(
     compare_func: CompareFunc,
     subtests: pytest.Subtests,
 ) -> None:
-    possible_tags: tuple[list[rapidnbt.Tag], ...] | tuple[rapidnbt.Tag, ...]
     if as_list:
-        possible_tags = tuple([tag_type(value)] for value in possible_values)  # type: ignore[call-arg]
+        possible_tags: tuple[rapidnbt.Tag, ...] = tuple(
+            rapidnbt.ListTag([tag_type(value)])  # type: ignore[call-arg]
+            for value in possible_values
+        )
     else:
         possible_tags = tuple(tag_type(value) for value in possible_values)  # type: ignore[call-arg]
 
-    for value in possible_tags:
-        with subtests.test(msg="equal", value=value.to_snbt(indent=0)):
-            left = right = wrap_in_compound(value)
-            assert compare_func(left, right)
+    for tag in possible_tags:
+        with subtests.test(msg="equal", value=tag.to_snbt(indent=0)):
+            value = wrap_in_compound(tag)
+            assert compare_func(value, value)
 
-    for left_arg, right_arg in itertools.combinations(possible_tags, 2):
+    for left_tag, right_tag in itertools.combinations(possible_tags, 2):
         with subtests.test(
-            msg="inequal", left=left_arg.to_snbt(indent=0), right=right_arg.to_snbt(indent=0)
+            msg="inequal", left=left_tag.to_snbt(indent=0), right=right_tag.to_snbt(indent=0)
         ):
-            left = wrap_in_compound(left_arg)
-            right = wrap_in_compound(right_arg)
+            left = wrap_in_compound(left_tag)
+            right = wrap_in_compound(right_tag)
             assert not compare_func(left, right)
+
+    if not possible_values:
+        tag = [tag_type()] if as_list else tag_type()
+        value = wrap_in_compound(tag)
+        assert compare_func(value, value)
 
 
 @pytest.mark.parametrize("is_chunk", [True, False])
