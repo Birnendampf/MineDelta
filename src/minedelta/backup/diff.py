@@ -32,7 +32,7 @@ else:
 if TYPE_CHECKING:
     from _typeshed import StrPath, Unused
 
-__all__ = ["MAX_WORKERS", "DiffBackupManager", "_convert_backup_data_to_json"]
+__all__ = ["MAX_WORKERS", "DiffBackupManager"]
 
 MCA_FOLDERS: Final = ("region", "entities", "poi")
 
@@ -305,6 +305,13 @@ class DiffBackupManager(BaseBackupManager[int]):
     def _write_backups_data(self, backups_data: list[BackupData]) -> None:
         self._backups_data_path.write_bytes(_BackupDataENCODER.encode(backups_data))
 
+    def write_backups_data_json(self) -> None:
+        """Convert the backups data to human readable JSON format."""
+        decoded = _BackupDataDECODER.decode(self._backups_data_path.read_bytes())
+        self._backups_data_path.with_suffix(".json").write_bytes(
+            msgspec.json.format(msgspec.json.encode(decoded, order="deterministic"))
+        )
+
     def _load_backups_data_validate_idx(self, idx: int) -> list[BackupData]:
         if idx < 0:
             raise IndexError("index must be >= 0")
@@ -471,11 +478,3 @@ def _should_apply_diff(src_file: Path, dest_file: Path) -> bool:
         return False
 
     return True
-
-
-def _convert_backup_data_to_json(backup_data: "StrPath") -> None:
-    as_path = Path(backup_data)
-    decoded = _BackupDataDECODER.decode(as_path.read_bytes())
-    as_path.with_suffix(".json").write_bytes(
-        msgspec.json.format(msgspec.json.encode(decoded, order="deterministic"))
-    )
