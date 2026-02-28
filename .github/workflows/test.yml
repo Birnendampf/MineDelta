@@ -1,4 +1,4 @@
-name: Run Tests
+name: CI
 
 on:
   push:
@@ -33,7 +33,7 @@ jobs:
           python-version-file: .python-version
       - uses: astral-sh/setup-uv@v7
       - name: run pytest
-        run: uv run --only-group test pytest -Werror --cov --cov-report=xml
+        run: uv run --only-group test pytest -Werror --cov --cov-report=xml -n auto
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
