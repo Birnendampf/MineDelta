@@ -3,6 +3,7 @@
 For more details, see `HardlinkBackupManager`.
 """
 
+import contextlib
 import datetime
 import filecmp
 import operator
@@ -10,7 +11,7 @@ import os
 import shutil
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from os import DirEntry
 from pathlib import Path
 
@@ -38,10 +39,10 @@ class HardlinkBackupManager(BaseBackupManager[str]):
     def create_backup(
         self, description: str | None = None, progress: Callable[[str], None] = _noop
     ) -> BackupInfo:
-        timestamp = round(time.time())
+        timestamp = time.time()
         new_backup = self._backup_dir / str(timestamp)
         new_info = BackupInfo(
-            datetime.datetime.fromtimestamp(timestamp, datetime.UTC), str(timestamp), None
+            datetime.datetime.fromtimestamp(round(timestamp), datetime.UTC), str(timestamp), None
         )
         if new_backup.is_dir():
             return new_info
@@ -80,18 +81,16 @@ class HardlinkBackupManager(BaseBackupManager[str]):
                 (current_new / name).hardlink_to(Path(compare.right, name))
         return new_info
 
-    def _get_valid_backups(self) -> list[tuple[DirEntry[str], int]]:
+    def _get_valid_backups(self) -> Iterator[tuple[DirEntry[str], float]]:
         with os.scandir(self._backup_dir) as scan_it:
-            return [
-                (child, int(child.name))
-                for child in scan_it
-                if child.name.isdecimal() and child.is_dir()
-            ]
+            for child in scan_it:
+                if not child.is_dir():
+                    continue
+                with contextlib.suppress(ValueError):
+                    yield (child, float(child.name))
 
-    def _get_sorted_backups(self) -> list[tuple[DirEntry[str], int]]:
-        backups = self._get_valid_backups()
-        backups.sort(key=operator.itemgetter(1), reverse=True)
-        return backups
+    def _get_sorted_backups(self) -> list[tuple[DirEntry[str], float]]:
+        return sorted(self._get_valid_backups(), key=operator.itemgetter(1), reverse=True)
 
     @override
     def restore_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
