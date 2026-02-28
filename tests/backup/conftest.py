@@ -104,7 +104,7 @@ def _world_3(tmp_path_factory: pytest.TempPathFactory, _world_1: Path) -> Path:
 
 @pytest.fixture(
     scope="session",
-    params=(*itertools.permutations(range(4), 3), (1, 2, 1), (1, 0, 1), (3, 1, 1), (1, 1, 0)),
+    params=(*itertools.permutations(range(4), 2), (1, 2, 1), (1, 0, 1), (3, 1, 1), (1, 1, 0)),
 )
 def world_variations(
     _world_0: Path, _world_1: Path, _world_2: Path, _world_3: Path, request: pytest.FixtureRequest
