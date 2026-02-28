@@ -20,7 +20,7 @@ jobs:
           python-version-file: .python-version
       - uses: astral-sh/setup-uv@v7
       - name: run ruff
-        run: uv run ruff check --output-format=github
+        run: uv run --only-group lint ruff check --output-format=github
       - name: run mypy
         run: uv run mypy
   test:
@@ -33,7 +33,7 @@ jobs:
           python-version-file: .python-version
       - uses: astral-sh/setup-uv@v7
       - name: run pytest
-        run: uv run --no-group lint pytest -Werror --cov --cov-report=xml
+        run: uv run --only-group test pytest -Werror --cov --cov-report=xml
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
