@@ -56,15 +56,18 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "lz4>=4.4.5",
-    "nbtcompare",
+    { include-group = "lint" },
     "pre-commit>=4.5.1",
-    "pytest-cov>=7.0.0",
-    "rapidnbt>=1.3.5",
 ]
 lint = [
+    { include-group = "test" },
     "mypy>=1.19.1",
     "ruff>=0.15.1",
+]
+test = [
+    "minedelta[standard]",
+    "pytest-cov>=7.0.0",
+    "rapidnbt>=1.3.5",
 ]
 
 [tool.uv.workspace]
@@ -75,8 +78,6 @@ members = [
 [tool.uv.sources]
 nbtcompare = { workspace = true }
 
-[tool.uv]
-default-groups = "all"
 
 [tool.ruff]
 line-length = 100
@@ -124,7 +125,7 @@ strict = true
 packages = ["minedelta", "tests", "nbtcompare"]
 
 [[tool.mypy.overrides]]
-module = ["dulwich.*", "lz4.*", "nbtcompare"]
+module = ["lz4.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
