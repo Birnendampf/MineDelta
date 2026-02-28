@@ -116,6 +116,11 @@ def test_tag_types(
     compare_func: CompareFunc,
     subtests: pytest.Subtests,
 ) -> None:
+    if not possible_values:
+        tag = [tag_type()] if as_list else tag_type()
+        value = wrap_in_compound(tag)
+        assert compare_func(value, value)
+        return
     if as_list:
         possible_tags: tuple[rapidnbt.Tag, ...] = tuple(
             rapidnbt.ListTag([tag_type(value)])  # type: ignore[call-arg]
@@ -136,11 +141,6 @@ def test_tag_types(
             left = wrap_in_compound(left_tag)
             right = wrap_in_compound(right_tag)
             assert not compare_func(left, right)
-
-    if not possible_values:
-        tag = [tag_type()] if as_list else tag_type()
-        value = wrap_in_compound(tag)
-        assert compare_func(value, value)
 
 
 @pytest.mark.parametrize("is_chunk", [True, False])
