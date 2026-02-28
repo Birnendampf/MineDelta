@@ -22,7 +22,7 @@ jobs:
       - name: run ruff
         run: uv run --only-group lint ruff check --output-format=github
       - name: run mypy
-        run: uv run mypy
+        run: uv run --only-group lint mypy
   test:
     name: Test
     runs-on: ubuntu-latest
