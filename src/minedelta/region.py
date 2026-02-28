@@ -300,10 +300,15 @@ class RegionFile:
             ChunkLoadingError: Overlapping chunks were detected.
         """
         prev_end = 2
+        no_missing_chunks = True
         for this_header, other_header in sorted(
             zip(self._headers, other._headers, strict=True), key=operator.itemgetter(0)
         ):
-            if this_header.not_created or this_header.unmodified:
+            if this_header.unmodified:
+                continue
+            if this_header.not_created:
+                if not other_header.not_created:
+                    no_missing_chunks = False
                 continue
             if not (other_header.not_created or other_header.unmodified) and self._check_unchanged(
                 this_header, other, other_header, is_chunk
@@ -314,7 +319,7 @@ class RegionFile:
                 prev_end = self._move_chunk_back(prev_end, this_header)
 
         self._mmap.resize(prev_end * SECTOR)
-        return prev_end == 2
+        return no_missing_chunks and prev_end == 2
 
     def _move_chunk_back(self, prev_end: int, header: ChunkHeader) -> int:
         if header.offset > prev_end:

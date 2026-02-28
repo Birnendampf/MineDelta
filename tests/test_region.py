@@ -168,17 +168,29 @@ class TestDiffOperations:
                 this._get_chunk_data(this._headers[0])
             assert this.density() == 1
 
-    def test_not_identical(self, dummy_region_file: Path, other_dummy: Path) -> None:
+    @pytest.mark.parametrize("swap", [True, False])
+    def test_not_identical(
+        self, dummy_region_file: Path, other_dummy: Path, swap: bool, subtests: pytest.Subtests
+    ) -> None:
         tag = nbt.CompoundTag({"LastUpdate": nbt.LongTag(1), "hello": "world"})
         helpers.write_nbt_to_region_file(dummy_region_file, 1, 1, tag)
         with (
-            region.RegionFile.open(dummy_region_file) as this,
+            region.RegionFile.open(dummy_region_file) as added,
             region.RegionFile.open(other_dummy) as other,
         ):
-            assert not this.filter_diff_defragment(other)
-            assert this._headers[0].unmodified
-            check_chunk_at_idx_matches(this, 1, tag)
-            assert this.density() == 1
+            # yes its ugly but leads to nicer test failures
+            if swap:
+                assert not other.filter_diff_defragment(added)
+                assert other._headers[0].unmodified
+            else:
+                assert not added.filter_diff_defragment(other)
+                assert added._headers[0].unmodified
+                check_chunk_at_idx_matches(added, 1, tag)
+                assert added.density() == 1
+                with subtests.test("diff idempotency"):
+                    assert not added.filter_diff_defragment(other)
+                    assert added._headers[0].unmodified
+                    check_chunk_at_idx_matches(added, 1, tag)
 
     @pytest.mark.parametrize("defragment", [True, False])
     @pytest.mark.parametrize("added_size", [True, False])
