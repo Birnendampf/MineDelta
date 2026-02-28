@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 __all__ = ["MAX_WORKERS", "DiffBackupManager"]
 
-MCA_FOLDERS: Final = ("region", "entities", "poi")
+MCA_FOLDERS: Final = frozenset(("region", "entities", "poi"))
 
 _cpu_count: int | None = None
 with contextlib.suppress(AttributeError):
@@ -363,9 +363,9 @@ def _filter_diff(
         for file in compare.diff_files:
             src_file = Path(compare.left, file)
             dest_file = Path(compare.right, file)
-            if src_file.stat().st_size == 0:
+            if not src_file.stat().st_size:
                 continue
-            if dest_file.stat().st_size == 0:
+            if not dest_file.stat().st_size:
                 dest_file.unlink()
                 not_present.add(src_file.relative_to(src).as_posix())
                 continue
