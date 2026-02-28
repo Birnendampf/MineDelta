@@ -1,6 +1,7 @@
 import filecmp
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -50,7 +51,9 @@ def assert_all_ignored(path: Path) -> None:
 
 
 def test_restore_backup(
-    load_manager: BaseBackupManager, world_variations: tuple[Path, ...], subtests: pytest.Subtests
+    load_manager: BaseBackupManager[Any],
+    world_variations: tuple[Path, ...],
+    subtests: pytest.Subtests,
 ) -> None:
     if load_manager.index_by == "idx":
 

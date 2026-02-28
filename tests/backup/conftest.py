@@ -1,7 +1,7 @@
 import itertools
 import shutil
 from pathlib import Path
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 import pytest
 import rapidnbt
@@ -116,21 +116,21 @@ def world_variations(
 @pytest.fixture(scope="class", params=[GitBackupManager, DiffBackupManager, HardlinkBackupManager])
 def manager(
     request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
-) -> BaseBackupManager:
+) -> BaseBackupManager[Any]:
     tmp_path = tmp_path_factory.mktemp(request.param.__name__)
     world_dir = tmp_path / "world"
     backup_dir = tmp_path / "backup"
     world_dir.mkdir(parents=True)
     backup_dir.mkdir(parents=True)
-    manager: BaseBackupManager = request.param(world_dir, backup_dir)
+    manager: BaseBackupManager[Any] = request.param(world_dir, backup_dir)
     manager.prepare()
     return manager
 
 
 @pytest.fixture(scope="class")
 def load_manager(
-    world_variations: WorldVariations, manager: BaseBackupManager
-) -> BaseBackupManager:
+    world_variations: WorldVariations, manager: BaseBackupManager[Any]
+) -> BaseBackupManager[Any]:
     # noinspection PyProtectedMember
     orig_world = manager._world
     if isinstance(manager, GitBackupManager):
