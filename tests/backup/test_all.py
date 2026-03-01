@@ -38,6 +38,7 @@ def assert_matches_world(world: Path, reference: Path) -> None:
                             assert ref_region._check_unchanged(
                                 ref_header, actual_region, actual_header, common_dir == "region"
                             )
+        assert not compare.left_only
         for file in right_only:
             assert_all_ignored(Path(compare.right, file))
 
@@ -85,7 +86,7 @@ def test_delete_backup(
         infos = loaded_manager.list_backups()
         loaded_manager.delete_backup(infos[delete_idx].id)
     variations = list(world_variations)
-    variations.pop(delete_idx)
+    deleted = variations.pop(delete_idx)  # noqa: F841
     test_restore_backup(loaded_manager, variations, subtests)
     # orig_world = loaded_manager._world
     # loaded_manager._world = deleted
@@ -95,6 +96,6 @@ def test_delete_backup(
     #     (deleted / ".git").unlink()
     # else:
     #     loaded_manager.create_backup(deleted.name)
-    # world_variations.insert(0, deleted)
+    # variations.insert(0, deleted)
     # loaded_manager._world = orig_world
-    # test_restore_backup(loaded_manager, world_variations, subtests)
+    # test_restore_backup(loaded_manager, variations, subtests)
