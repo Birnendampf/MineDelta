@@ -4,8 +4,9 @@
 # MineDelta Backup Utility
 
 [![codecov](https://codecov.io/gh/Birnendampf/MineDelta/graph/badge.svg?token=SL4PPPYOR8)](https://codecov.io/gh/Birnendampf/MineDelta)
-[![CI](https://github.com/Birnendampf/MineDelta/actions/workflows/test.yml/badge.svg)](https://github.com/Birnendampf/MineDelta/actions/workflows/test.yml)
-
+[![CI](https://github.com/Birnendampf/minedelta/actions/workflows/test.yml/badge.svg)](https://github.com/Birnendampf/MineDelta/actions/workflows/test.yml)
+[![PyPI - Version](https://img.shields.io/pypi/v/minedelta)](https://pypi.org/project/minedelta/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/minedelta)]((https://pypi.org/project/minedelta/))
 
 > Why store everything when you can just store only the chunks that changed?
 
@@ -24,6 +25,7 @@ each with their own advantages and drawbacks ([see below](#comparison-between-ba
 ```shell
 uvx install minedelta
 ```
+
 This will install only the package and its required dependencies.
 
 To be able to use the `diff` backup method on a server that has `region-file-compression = lz4` set

@@ -1,5 +1,10 @@
 # NBTCompare
 
+[![codecov](https://codecov.io/gh/Birnendampf/MineDelta/graph/badge.svg?token=SL4PPPYOR8)](https://codecov.io/gh/Birnendampf/MineDelta)
+[![CI](https://github.com/Birnendampf/minedelta/actions/workflows/test.yml/badge.svg)](https://github.com/Birnendampf/MineDelta/actions/workflows/test.yml)
+[![PyPI - Version](https://img.shields.io/pypi/v/nbtcompare)](https://pypi.org/project/nbtcompare/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/nbtcompare)]((https://pypi.org/project/nbtcompare/))
+
 > [!IMPORTANT]
 > This is a helper package for [MineDelta](https://github.com/Birnendampf/MineDelta)
 > and is not meant to be used directly.
