@@ -70,3 +70,31 @@ def test_restore_backup(
         with subtests.test(idx=i):
             restore_func(i)
             assert_matches_world(Path(loaded_manager._world), variation)
+
+
+@pytest.mark.parametrize("delete_idx", range(2))
+def test_delete_backup(
+    world_variations: tuple[Path, ...],
+    loaded_manager: BaseBackupManager[Any],
+    delete_idx: int,
+    subtests: pytest.Subtests,
+) -> None:
+    if loaded_manager.index_by == "idx":
+        loaded_manager.delete_backup(delete_idx)
+    else:
+        infos = loaded_manager.list_backups()
+        loaded_manager.delete_backup(infos[delete_idx].id)
+    variations = list(world_variations)
+    variations.pop(delete_idx)
+    test_restore_backup(loaded_manager, variations, subtests)
+    # orig_world = loaded_manager._world
+    # loaded_manager._world = deleted
+    # if isinstance(loaded_manager, GitBackupManager):
+    #     loaded_manager.prepare()
+    #     loaded_manager.create_backup(deleted.name)
+    #     (deleted / ".git").unlink()
+    # else:
+    #     loaded_manager.create_backup(deleted.name)
+    # world_variations.insert(0, deleted)
+    # loaded_manager._world = orig_world
+    # test_restore_backup(loaded_manager, world_variations, subtests)
