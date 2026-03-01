@@ -65,6 +65,9 @@ def _world_1(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def _world_2(tmp_path_factory: pytest.TempPathFactory, _world_1: Path) -> Path:
     world_dir = tmp_path_factory.mktemp("world_2")
     shutil.copytree(_world_1, world_dir, dirs_exist_ok=True)
+    very_deeply = world_dir / "very" / "deeply"
+    (very_deeply / "here.dat").touch()
+    shutil.rmtree(very_deeply / "nested")
     (world_dir / "icon.png").write_text("icon_2")
     chunk_region_dir = world_dir / "region"
     region_0_minus_1 = chunk_region_dir / "r.0.-1.mca"
@@ -118,7 +121,7 @@ def id_func(value: tuple[int, ...]) -> str:
 def world_variations(
     _world_0: Path, _world_1: Path, _world_2: Path, _world_3: Path, request: pytest.FixtureRequest
 ) -> WorldVariations:
-    loc = locals()
+    loc = locals()  # in 3.11 comprehensions still have their own scope (see PEP 709)
     return tuple(loc[f"_world_{i}"] for i in request.param)
 
 
