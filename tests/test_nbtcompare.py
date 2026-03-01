@@ -17,7 +17,7 @@ class CompareFunc(Protocol):
     def __call__(self, left: bytes, right: bytes, exclude_last_update: bool = False) -> bool: ...
 
 
-@pytest.mark.parametrize("left_fault", [True, False])
+@pytest.mark.parametrize("left_fault", [True, False], ids=("left_fault", "right_fault"))
 class TestExceptions:
     @staticmethod
     def get_exc_note(left_fault: bool) -> str:

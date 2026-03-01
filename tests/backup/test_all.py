@@ -1,5 +1,6 @@
 import filecmp
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -51,21 +52,21 @@ def assert_all_ignored(path: Path) -> None:
 
 
 def test_restore_backup(
-    load_manager: BaseBackupManager[Any],
-    world_variations: tuple[Path, ...],
+    loaded_manager: BaseBackupManager[Any],
+    world_variations: Iterable[Path],
     subtests: pytest.Subtests,
 ) -> None:
-    if load_manager.index_by == "idx":
+    if loaded_manager.index_by == "idx":
 
         def restore_func(idx: int) -> None:
-            load_manager.restore_backup(idx)
+            loaded_manager.restore_backup(idx)
     else:
-        infos = load_manager.list_backups()
+        infos = loaded_manager.list_backups()
 
         def restore_func(idx: int) -> None:
-            return load_manager.restore_backup(infos[idx].id)
+            return loaded_manager.restore_backup(infos[idx].id)
 
-    for i, variation in enumerate(reversed(world_variations)):
+    for i, variation in enumerate(world_variations):
         with subtests.test(idx=i):
             restore_func(i)
-            assert_matches_world(Path(load_manager._world), variation)
+            assert_matches_world(Path(loaded_manager._world), variation)

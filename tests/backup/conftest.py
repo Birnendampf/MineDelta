@@ -33,14 +33,17 @@ def _world_1(tmp_path_factory: pytest.TempPathFactory) -> Path:
     # chunk mca file
     chunk_region_dir = world_dir / "region"
     chunk_region_dir.mkdir()
-    chunk_region = chunk_region_dir / "r.0.0.mca"
-    helpers.generate_bare_region_file(chunk_region)
+    region_0_0 = chunk_region_dir / "r.0.0.mca"
+    helpers.generate_bare_region_file(region_0_0)
     helpers.write_nbt_to_region_file(
-        chunk_region, 0, 1, rapidnbt.CompoundTag({"chunk": "region 0.0", "LastUpdate": 1})
+        region_0_0, 0, 1, rapidnbt.CompoundTag({"chunk": "region 0.0", "LastUpdate": 1})
     )
     helpers.write_nbt_to_region_file(
-        chunk_region, 1, 1, rapidnbt.CompoundTag({"chunk": "something", "LastUpdate": 1})
+        region_0_0, 1, 1, rapidnbt.CompoundTag({"chunk": "something", "LastUpdate": 1})
     )
+    region_1_0 = chunk_region_dir / "r.1.0.mca"
+    helpers.generate_bare_region_file(region_1_0)
+    helpers.write_nbt_to_region_file(region_1_0, 0, 1)
     # fake mca file (minecraft does this a lot)
     (chunk_region_dir / "r.0.-1.mca").touch()
     # other file
@@ -98,13 +101,19 @@ def _world_3(tmp_path_factory: pytest.TempPathFactory, _world_1: Path) -> Path:
     deep_ignored.parent.mkdir(parents=True)
     deep_ignored.write_text("Not a real DB lol")
     helpers.write_nbt_to_region_file(chunk_region_dir / "r.0.0.mca", 2, 3)
+    helpers.write_nbt_to_region_file(chunk_region_dir / "r.1.0.mca", 0, 3)
     helpers.generate_bare_region_file(chunk_region_dir / "r.0.1.mca")
     return world_dir
+
+
+def id_func(value: tuple[int, ...]) -> str:
+    return str(value)
 
 
 @pytest.fixture(
     scope="session",
     params=(*itertools.permutations(range(4), 2), (1, 2, 1), (1, 0, 1), (3, 1, 1), (1, 1, 0)),
+    ids=id_func,
 )
 def world_variations(
     _world_0: Path, _world_1: Path, _world_2: Path, _world_3: Path, request: pytest.FixtureRequest
@@ -113,11 +122,8 @@ def world_variations(
     return tuple(loc[f"_world_{i}"] for i in request.param)
 
 
-@pytest.fixture(scope="class", params=[GitBackupManager, DiffBackupManager, HardlinkBackupManager])
-def manager(
-    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
-) -> BaseBackupManager[Any]:
-    tmp_path = tmp_path_factory.mktemp(request.param.__name__)
+@pytest.fixture(params=[GitBackupManager, DiffBackupManager, HardlinkBackupManager])
+def manager(request: pytest.FixtureRequest, tmp_path: Path) -> BaseBackupManager[Any]:
     world_dir = tmp_path / "world"
     backup_dir = tmp_path / "backup"
     world_dir.mkdir(parents=True)
@@ -127,20 +133,20 @@ def manager(
     return manager
 
 
-@pytest.fixture(scope="class")
-def load_manager(
+@pytest.fixture
+def loaded_manager(
     world_variations: WorldVariations, manager: BaseBackupManager[Any]
 ) -> BaseBackupManager[Any]:
     # noinspection PyProtectedMember
     orig_world = manager._world
     if isinstance(manager, GitBackupManager):
-        for path in world_variations:
+        for path in reversed(world_variations):
             manager._world = path
             manager.prepare()
             manager.create_backup(path.name)
             (path / ".git").unlink()
     else:
-        for path in world_variations:
+        for path in reversed(world_variations):
             manager._world = path
             manager.create_backup(path.name)
     manager._world = orig_world
