@@ -39,11 +39,11 @@ MCA_FOLDERS: Final = frozenset(("region", "entities", "poi"))
 _cpu_count: int | None = None
 with contextlib.suppress(AttributeError):
     _cpu_count = os.process_cpu_count()  # type: ignore[attr-defined]
-if _cpu_count is None:
+if _cpu_count is None:  # pragma: no cover
     # sys.version_info < 3.13
     with contextlib.suppress(AttributeError):
         _cpu_count = len(os.sched_getaffinity(0))
-if _cpu_count is None:
+if _cpu_count is None:  # pragma: no cover
     _cpu_count = os.cpu_count()
 
 MAX_WORKERS = _cpu_count or 1
@@ -86,9 +86,14 @@ def _extract_backup(
         the path of the extracted backup.
     """
     if skip:
+        skipped_dirs = []
 
         def custom_filter(member: tarfile.TarInfo, dest_path: str) -> tarfile.TarInfo | None:
             if member.name in skip:
+                if member.isdir():
+                    skipped_dirs.append(member.name)
+                return None
+            if any(member.name.startswith(d) for d in skipped_dirs):
                 return None
             return tarfile.data_filter(member, dest_path)
     else:
