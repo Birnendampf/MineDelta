@@ -196,7 +196,7 @@ class _MetaDataManager(BaseBackupManager[int], Generic[_BackupInfoT], metaclass=
         return backup_infos
 
     @contextlib.contextmanager
-    def _prepare_create(
+    def _prepare_create_backup(
         self,
         description: str | None,
         progress: Callable[[str], None],

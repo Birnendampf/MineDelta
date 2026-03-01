@@ -144,7 +144,10 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         executor: concurrent.futures.Executor | None = None,
     ) -> BackupInfo:
         with (
-            self._prepare_create(description, progress, BackupData) as (new_backup, previous),
+            self._prepare_create_backup(description, progress, BackupData) as (
+                new_backup,
+                previous,
+            ),
             # create Temporary directory in backup dir to ensure replace succeeds
             tempfile.TemporaryDirectory(dir=self._backup_dir) as _temp_dir,
             _get_executor(executor) as ex,
