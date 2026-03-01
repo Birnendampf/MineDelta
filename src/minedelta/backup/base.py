@@ -184,13 +184,19 @@ class _MetaDataManager(BaseBackupManager[int], Generic[_BackupInfoT], metaclass=
 
     @override
     def list_backups(self) -> list[BackupInfo]:
-        backups_data = self._load_backups_data()
+        try:
+            backups_data = self._load_backups_data()
+        except FileNotFoundError:
+            return []
         return msgspec.convert(backups_data, list[BackupInfo], from_attributes=True)
 
     def _load_backups_data_validate_idx(self, idx: int) -> list[_BackupInfoT]:
         if idx < 0:
             raise IndexError("index must be >= 0")
-        backup_infos = self._load_backups_data()
+        try:
+            backup_infos = self._load_backups_data()
+        except FileNotFoundError:
+            raise IndexError("no backups data found") from None
         if idx >= len(backup_infos):
             raise IndexError(f"no backup found with index {idx}")
         return backup_infos
