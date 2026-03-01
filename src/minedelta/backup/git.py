@@ -184,6 +184,9 @@ class GitBackupManager(BaseBackupManager[str]):
 
             last_commit_id = last_commits[0]
             r.refs.set_if_equals(dw.refs.HEADREF, old_head, last_commit_id)
+            index = r.open_index()
+            index.clear()
+            index.write()
             progress("pruning")
             _, freed = dw.gc.prune_unreachable_objects(
                 r.object_store, r.refs, progress=self._gc_progress(progress)
