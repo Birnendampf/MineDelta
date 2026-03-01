@@ -5,24 +5,22 @@ For more details, see `DiffBackupManager`.
 
 import concurrent.futures
 import contextlib
-import datetime
 import filecmp
 import os
 import shutil
 import sys
 import tarfile
 import tempfile
-import uuid
 from collections.abc import Callable, Container
 from pathlib import Path, PurePath
-from typing import TYPE_CHECKING, Annotated, Final, Self, TypeVar
+from typing import TYPE_CHECKING, Final, Self, TypeVar
 
 import msgspec
 
 from minedelta._dummy_executor import DummyExecutor
 from minedelta.region import RegionFile
 
-from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, BaseBackupManager, _noop
+from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, _MetaDataManager, _noop
 
 if sys.version_info >= (3, 12):  # pragma: no cover
     from typing import override
@@ -53,19 +51,12 @@ del _cpu_count
 _DefaultExecutor = concurrent.futures.ThreadPoolExecutor
 
 
-class BackupData(msgspec.Struct, omit_defaults=True):
-    timestamp: Annotated[datetime.datetime, msgspec.Meta(tz=True)]
-    id: uuid.UUID
-    not_present: set[str]
-    desc: str | None = None
+class BackupData(BackupInfo):
+    not_present: set[str] = set()  # noqa: RUF012  # msgspec understands
 
     @property
     def name(self) -> str:
         return f"{self.id}.tar.gz"
-
-
-_BackupDataENCODER: Final = msgspec.msgpack.Encoder(uuid_format="bytes")
-_BackupDataDECODER: Final = msgspec.msgpack.Decoder(list[BackupData])
 
 
 _PathT = TypeVar("_PathT", bound=PurePath)
@@ -123,7 +114,7 @@ def _get_executor(
     return _DefaultExecutor(max_workers=MAX_WORKERS)
 
 
-class DiffBackupManager(BaseBackupManager[int]):
+class DiffBackupManager(_MetaDataManager[BackupData]):
     """Manager to create backups that only store changed chunks.
 
     The newest backup is essentially complete copy, every previous n-th backup stores the changes
@@ -142,13 +133,8 @@ class DiffBackupManager(BaseBackupManager[int]):
     workers equal to the number of available cpu cores will be used
     """
 
-    __slots__ = ("_backups_data_path",)
-    index_by = "idx"
-
-    @override
-    def __init__(self, save: "StrPath", backup_dir: Path):
-        super().__init__(save, backup_dir)
-        self._backups_data_path: Final = backup_dir / "backups.dat"
+    __slots__ = ()
+    _BackupDataDECODER = msgspec.msgpack.Decoder(list[BackupData])
 
     @override
     def create_backup(
@@ -157,19 +143,11 @@ class DiffBackupManager(BaseBackupManager[int]):
         progress: Callable[[str], None] = _noop,
         executor: concurrent.futures.Executor | None = None,
     ) -> BackupInfo:
-        # TODO: there could be a race condition if the world is modified while a backup is created
-        #  /save-off needs to be run beforehand
-        timestamp = datetime.datetime.now(datetime.UTC).replace(microsecond=0)
-        id_ = uuid.uuid4()
-        progress(f'creating backup "{id_}"')
-        new_backup = BackupData(timestamp, id_, set(), description)
-        try:
-            backups_data = self._load_backups_data()
-            previous: BackupData | None = backups_data[0]
-        except (FileNotFoundError, IndexError):
-            backups_data = []
-            previous = None
         with (
+            self._prepare_create_backup(description, progress, BackupData) as (
+                new_backup,
+                previous,
+            ),
             # create Temporary directory in backup dir to ensure replace succeeds
             tempfile.TemporaryDirectory(dir=self._backup_dir) as _temp_dir,
             _get_executor(executor) as ex,
@@ -196,9 +174,7 @@ class DiffBackupManager(BaseBackupManager[int]):
                 previous.not_present = not_present
                 new_previous.replace(self._backup_dir / previous.name)
 
-        backups_data.insert(0, new_backup)
-        self._write_backups_data(backups_data)
-        return BackupInfo(timestamp, str(id_), description)
+        return msgspec.convert(new_backup, BackupInfo, from_attributes=True)
 
     @override
     def restore_backup(
@@ -291,39 +267,6 @@ class DiffBackupManager(BaseBackupManager[int]):
         del backups_data[id_]
         self._write_backups_data(backups_data)
         (self._backup_dir / data_chosen.name).unlink()
-
-    @override
-    def list_backups(self) -> list[BackupInfo]:
-        backups_data = self._load_backups_data()
-        return [BackupInfo(data.timestamp, str(data.id), data.desc) for data in backups_data]
-
-    # Handling backup data
-
-    def _load_backups_data(self) -> list[BackupData]:
-        try:
-            return _BackupDataDECODER.decode(self._backups_data_path.read_bytes())
-        except FileNotFoundError:
-            return msgspec.json.decode(
-                self._backups_data_path.with_suffix(".json").read_bytes(), type=list[BackupData]
-            )
-
-    def _write_backups_data(self, backups_data: list[BackupData]) -> None:
-        self._backups_data_path.write_bytes(_BackupDataENCODER.encode(backups_data))
-
-    def write_backups_data_json(self) -> None:
-        """Convert the backups data to human readable JSON format."""
-        decoded = _BackupDataDECODER.decode(self._backups_data_path.read_bytes())
-        self._backups_data_path.with_suffix(".json").write_bytes(
-            msgspec.json.format(msgspec.json.encode(decoded, order="deterministic"))
-        )
-
-    def _load_backups_data_validate_idx(self, idx: int) -> list[BackupData]:
-        if idx < 0:
-            raise IndexError("index must be >= 0")
-        backup_infos = self._load_backups_data()
-        if idx >= len(backup_infos):
-            raise IndexError(f"no backup found with index {idx}")
-        return backup_infos
 
 
 # FILTERING

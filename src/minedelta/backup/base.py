@@ -9,11 +9,18 @@ import contextlib
 import datetime
 import os
 import shutil
-from collections.abc import Callable
+import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Generic, Literal, TypeVar
 
 import msgspec
+
+if sys.version_info >= (3, 12):  # pragma: no cover
+    from typing import override
+else:
+    from typing_extensions import override
+
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
@@ -30,7 +37,7 @@ BACKUP_IGNORE: Final = ["datapacks", "session.lock", "DistantHorizons.sqlite", "
 BACKUP_IGNORE_FROZENSET: Final = frozenset(BACKUP_IGNORE)
 
 
-class BackupInfo(msgspec.Struct):
+class BackupInfo(msgspec.Struct, omit_defaults=True):
     """Information about a backup.
 
     Attributes:
@@ -137,3 +144,82 @@ def _delete_file_or_dir(path: Path) -> None:
         shutil.rmtree(path)
     except FileNotFoundError:
         pass
+
+
+_BackupInfoT = TypeVar("_BackupInfoT", bound="BackupInfo")
+
+
+class _MetaDataManager(BaseBackupManager[int], Generic[_BackupInfoT], metaclass=abc.ABCMeta):
+    index_by = "idx"
+    __slots__ = ("_backups_data_path",)
+
+    _BackupDataENCODER: ClassVar = msgspec.msgpack.Encoder(uuid_format="bytes")
+    # noinspection PyClassVar
+    _BackupDataDECODER: ClassVar[msgspec.msgpack.Decoder[list[_BackupInfoT]]] = (
+        msgspec.msgpack.Decoder(list[BackupInfo])
+    )
+
+    @override
+    def __init__(self, save: "StrPath", backup_dir: Path):
+        super().__init__(save, backup_dir)
+        self._backups_data_path: Final = backup_dir / "backups.dat"
+
+    def _load_backups_data(self) -> list[_BackupInfoT]:
+        try:
+            return self._BackupDataDECODER.decode(self._backups_data_path.read_bytes())
+        except FileNotFoundError:
+            return msgspec.json.decode(
+                self._backups_data_path.with_suffix(".json").read_bytes(), type=list[_BackupInfoT]
+            )
+
+    def _write_backups_data(self, backups_data: list[_BackupInfoT]) -> None:
+        self._backups_data_path.write_bytes(self._BackupDataENCODER.encode(backups_data))
+
+    def write_backups_data_json(self) -> None:
+        """Convert the backups data to human-readable JSON format."""
+        decoded = self._BackupDataDECODER.decode(self._backups_data_path.read_bytes())
+        self._backups_data_path.with_suffix(".json").write_bytes(
+            msgspec.json.format(msgspec.json.encode(decoded, order="deterministic"))
+        )
+
+    @override
+    def list_backups(self) -> list[BackupInfo]:
+        backups_data = self._load_backups_data()
+        return msgspec.convert(backups_data, list[BackupInfo], from_attributes=True)
+
+    def _load_backups_data_validate_idx(self, idx: int) -> list[_BackupInfoT]:
+        if idx < 0:
+            raise IndexError("index must be >= 0")
+        backup_infos = self._load_backups_data()
+        if idx >= len(backup_infos):
+            raise IndexError(f"no backup found with index {idx}")
+        return backup_infos
+
+    @contextlib.contextmanager
+    def _prepare_create_backup(
+        self,
+        description: str | None,
+        progress: Callable[[str], None],
+        backup_data_type: type[_BackupInfoT],
+    ) -> Iterator[tuple[_BackupInfoT, _BackupInfoT | None]]:
+        timestamp = datetime.datetime.now(datetime.UTC).replace(microsecond=0)
+        try:
+            backups_data = self._load_backups_data()
+            previous: _BackupInfoT | None = backups_data[0]
+        except (FileNotFoundError, IndexError):
+            backups_data = []
+            previous = None
+        prev_ids = {data.id for data in backups_data}
+        id_ = timestamp.strftime("%Y-%m-%dT%H:%M:%S")
+        suffix = 0
+        id_format = id_ + "_{}"
+        while id_ in prev_ids:
+            id_ = id_format.format(suffix)
+            suffix += 1
+
+        progress(f'creating backup "{id_}"')
+        new_backup = backup_data_type(timestamp, id_, description)
+        yield new_backup, previous
+        # write back data if no exceptions occurred
+        backups_data.insert(0, new_backup)
+        self._write_backups_data(backups_data)

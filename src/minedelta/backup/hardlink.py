@@ -3,19 +3,15 @@
 For more details, see `HardlinkBackupManager`.
 """
 
-import contextlib
-import datetime
 import filecmp
-import operator
-import os
 import shutil
 import sys
-import time
-from collections.abc import Callable, Iterator
-from os import DirEntry
+from collections.abc import Callable
 from pathlib import Path
 
-from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, BaseBackupManager, _noop
+import msgspec
+
+from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, _MetaDataManager, _noop
 
 if sys.version_info >= (3, 12):  # pragma: no cover
     from typing import override
@@ -29,92 +25,62 @@ def copytree_backup_ignore(_: str, names: list[str]) -> frozenset[str]:
     return BACKUP_IGNORE_FROZENSET.intersection(names)
 
 
-class HardlinkBackupManager(BaseBackupManager[str]):
+class HardlinkBackupManager(_MetaDataManager[BackupInfo]):
     """Create backups by copying the world and hardlinking duplicate files to previous backups."""
 
     __slots__ = ()
-    index_by = "id"
+    _BackupDataDECODER = msgspec.msgpack.Decoder(list[BackupInfo])
 
     @override
     def create_backup(
         self, description: str | None = None, progress: Callable[[str], None] = _noop
     ) -> BackupInfo:
-        timestamp = time.time()
-        new_backup = self._backup_dir / str(timestamp)
-        new_info = BackupInfo(
-            datetime.datetime.fromtimestamp(round(timestamp), datetime.UTC), str(timestamp), None
-        )
-        if new_backup.is_dir():
-            return new_info
-        if new_backup.exists():
-            new_backup.unlink(True)
+        with self._prepare_create_backup(description, progress, BackupInfo) as (
+            new_backup,
+            previous,
+        ):
+            new_backup_file = self._backup_dir / new_backup.id
+            if not previous:
+                progress("copying world (no previous backup found)")
+                shutil.copytree(self._world, new_backup_file, ignore=copytree_backup_ignore)
+                return new_backup
 
-        other_backups = self._get_valid_backups()
-        try:
-            prev, prev_timestamp = max(other_backups, key=operator.itemgetter(1))
-        except ValueError:
-            progress("copying world (no previous backup found)")
-            shutil.copytree(self._world, new_backup, ignore=copytree_backup_ignore)
-            return new_info
-        if prev_timestamp >= timestamp:
-            raise ValueError("found backup from the future???")
+            prev_world = self._backup_dir / previous.id
+            progress(f'comparing against "{previous.id}"')
+            compare = filecmp.dircmp(self._world, prev_world, BACKUP_IGNORE)
+            compare_stack = [compare]
+            while compare_stack:
+                compare = compare_stack.pop()
+                compare_stack.extend(compare.subdirs.values())
 
-        if progress is not _noop:
-            prev_datetime = datetime.datetime.fromtimestamp(prev_timestamp, datetime.UTC)
-            progress(f"comparing against backup from {prev_datetime}")
-        compare = filecmp.dircmp(self._world, prev, BACKUP_IGNORE)
-        compare_stack = [compare]
-        while compare_stack:
-            compare = compare_stack.pop()
-            compare_stack.extend(compare.subdirs.values())
-
-            current_new = new_backup / Path(compare.right).relative_to(prev)
-            current_new.mkdir(exist_ok=True)
-            for name in compare.left_only + compare.diff_files:
-                file = Path(compare.left, name)
-                new_file = current_new / name
-                try:
-                    shutil.copy2(file, new_file)
-                except IsADirectoryError:
-                    shutil.copytree(file, new_file, ignore=copytree_backup_ignore)
-            for name in compare.same_files:
-                (current_new / name).hardlink_to(Path(compare.right, name))
-        return new_info
-
-    def _get_valid_backups(self) -> Iterator[tuple[DirEntry[str], float]]:
-        with os.scandir(self._backup_dir) as scan_it:
-            for child in scan_it:
-                if not child.is_dir():
-                    continue
-                with contextlib.suppress(ValueError):
-                    yield (child, float(child.name))
-
-    def _get_sorted_backups(self) -> list[tuple[DirEntry[str], float]]:
-        return sorted(self._get_valid_backups(), key=operator.itemgetter(1), reverse=True)
+                current_new = new_backup_file / Path(compare.right).relative_to(prev_world)
+                current_new.mkdir(exist_ok=True)
+                for name in compare.left_only + compare.diff_files:
+                    file = Path(compare.left, name)
+                    new_file = current_new / name
+                    try:
+                        shutil.copy2(file, new_file)
+                    except IsADirectoryError:
+                        shutil.copytree(file, new_file, ignore=copytree_backup_ignore)
+                for name in compare.same_files:
+                    (current_new / name).hardlink_to(Path(compare.right, name))
+            return new_backup
 
     @override
-    def restore_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
-        backup = self._backup_dir / id_
-        if not backup.is_dir():
-            raise ValueError("not a valid backup")
+    def restore_backup(self, id_: int, progress: Callable[[str], None] = _noop) -> None:
+        backups_data = self._load_backups_data_validate_idx(id_)
+        data_chosen = backups_data[id_]
+        chosen = self._backup_dir / data_chosen.id
         progress("deleting current world")
         self._clear_world()
-        if progress is not _noop:
-            restore_datetime = datetime.datetime.fromtimestamp(int(id_), datetime.UTC)
-            progress(f"restoring backup from {restore_datetime}")
-        shutil.copytree(backup, self._world, dirs_exist_ok=True)
+        progress(f'restoring "{data_chosen.id}"')
+        shutil.copytree(chosen, self._world, dirs_exist_ok=True)
 
     @override
-    def delete_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
-        backup = self._backup_dir / id_
-        if progress is not _noop:
-            delete_datetime = datetime.datetime.fromtimestamp(int(id_), datetime.UTC)
-            progress(f"deleting backup from {delete_datetime}")
-        shutil.rmtree(backup)
-
-    @override
-    def list_backups(self) -> list[BackupInfo]:
-        return [
-            BackupInfo(datetime.datetime.fromtimestamp(backup[1], datetime.UTC), str(backup[1]))
-            for backup in self._get_sorted_backups()
-        ]
+    def delete_backup(self, id_: int, progress: Callable[[str], None] = _noop) -> None:
+        backups_data = self._load_backups_data_validate_idx(id_)
+        data_chosen = backups_data.pop(id_)
+        chosen = self._backup_dir / data_chosen.id
+        progress(f'deleting "{data_chosen.id}"')
+        shutil.rmtree(chosen)
+        self._write_backups_data(backups_data)
