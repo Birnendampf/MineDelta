@@ -11,7 +11,7 @@ authors = [
 ]
 keywords = ["minecraft", "minecraft server", "differential backup", "backup", "versioning"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
     "Intended Audience :: System Administrators",
     "Operating System :: OS Independent",
@@ -135,5 +135,4 @@ follow_untyped_imports = true
 
 [tool.coverage.run]
 branch = true
-#source = ["nbtcompare", "minedelta"]
 command_line = "-m pytest"

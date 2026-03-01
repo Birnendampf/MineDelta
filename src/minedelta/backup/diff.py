@@ -24,7 +24,7 @@ from minedelta.region import RegionFile
 
 from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, BaseBackupManager, _noop
 
-if sys.version_info >= (3, 12):
+if sys.version_info >= (3, 12):  # pragma: no cover
     from typing import override
 else:
     from typing_extensions import override
@@ -49,7 +49,7 @@ if _cpu_count is None:  # pragma: no cover
 MAX_WORKERS = _cpu_count or 1
 del _cpu_count
 
-# InterpreterPool is not supported due to msgspec single-phase initialization
+# InterpreterPool is not supported
 _DefaultExecutor = concurrent.futures.ThreadPoolExecutor
 
 

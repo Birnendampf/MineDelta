@@ -26,7 +26,7 @@ import dulwich.porcelain
 import dulwich.refs
 import dulwich.repo
 
-if sys.version_info >= (3, 12):
+if sys.version_info >= (3, 12):  # pragma: no cover
     from typing import override
 else:
     from typing_extensions import override
