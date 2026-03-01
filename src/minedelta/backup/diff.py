@@ -5,14 +5,12 @@ For more details, see `DiffBackupManager`.
 
 import concurrent.futures
 import contextlib
-import datetime
 import filecmp
 import os
 import shutil
 import sys
 import tarfile
 import tempfile
-import uuid
 from collections.abc import Callable, Container
 from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Final, Self, TypeVar
@@ -145,19 +143,8 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         progress: Callable[[str], None] = _noop,
         executor: concurrent.futures.Executor | None = None,
     ) -> BackupInfo:
-        # TODO: there could be a race condition if the world is modified while a backup is created
-        #  /save-off needs to be run beforehand
-        timestamp = datetime.datetime.now(datetime.UTC).replace(microsecond=0)
-        id_ = str(uuid.uuid4())
-        progress(f'creating backup "{id_}"')
-        new_backup = BackupData(timestamp, id_, description, set())
-        try:
-            backups_data = self._load_backups_data()
-            previous: BackupData | None = backups_data[0]
-        except (FileNotFoundError, IndexError):
-            backups_data = []
-            previous = None
         with (
+            self._prepare_create(description, progress, BackupData) as (new_backup, previous),
             # create Temporary directory in backup dir to ensure replace succeeds
             tempfile.TemporaryDirectory(dir=self._backup_dir) as _temp_dir,
             _get_executor(executor) as ex,
@@ -184,9 +171,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 previous.not_present = not_present
                 new_previous.replace(self._backup_dir / previous.name)
 
-        backups_data.insert(0, new_backup)
-        self._write_backups_data(backups_data)
-        return BackupInfo(timestamp, str(id_), description)
+        return msgspec.convert(new_backup, BackupInfo, from_attributes=True)
 
     @override
     def restore_backup(

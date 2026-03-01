@@ -10,7 +10,7 @@ import datetime
 import os
 import shutil
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Generic, Literal, TypeVar
 
@@ -194,3 +194,32 @@ class _MetaDataManager(BaseBackupManager[int], Generic[_BackupInfoT], metaclass=
         if idx >= len(backup_infos):
             raise IndexError(f"no backup found with index {idx}")
         return backup_infos
+
+    @contextlib.contextmanager
+    def _prepare_create(
+        self,
+        description: str | None,
+        progress: Callable[[str], None],
+        backup_data_type: type[_BackupInfoT],
+    ) -> Iterator[tuple[_BackupInfoT, _BackupInfoT | None]]:
+        timestamp = datetime.datetime.now(datetime.UTC).replace(microsecond=0)
+        try:
+            backups_data = self._load_backups_data()
+            previous: _BackupInfoT | None = backups_data[0]
+        except (FileNotFoundError, IndexError):
+            backups_data = []
+            previous = None
+        prev_ids = {data.id for data in backups_data}
+        id_ = timestamp.strftime("%Y-%m-%dT%H:%M:%S")
+        suffix = 0
+        id_format = id_ + "_{}"
+        while id_ in prev_ids:
+            id_ = id_format.format(suffix)
+            suffix += 1
+
+        progress(f'creating backup "{id_}"')
+        new_backup = backup_data_type(timestamp, id_, description)
+        yield new_backup, previous
+        # write back data if no exceptions occurred
+        backups_data.insert(0, new_backup)
+        self._write_backups_data(backups_data)
