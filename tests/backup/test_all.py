@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from minedelta.backup import BaseBackupManager, base, diff
+from minedelta.backup import BaseBackupManager, GitBackupManager, base, diff
 from minedelta.region import RegionFile
 
 
@@ -92,19 +92,19 @@ def test_delete_backup(
         infos = loaded_manager.list_backups()
         loaded_manager.delete_backup(infos[delete_idx].id)
     variations = list(world_variations)
-    deleted = variations.pop(delete_idx)  # noqa: F841
+    deleted = variations.pop(delete_idx)
     test_restore_backup(loaded_manager, variations, subtests)
-    # orig_world = loaded_manager._world
-    # loaded_manager._world = deleted
-    # if isinstance(loaded_manager, GitBackupManager):
-    #     loaded_manager.prepare()
-    #     loaded_manager.create_backup(deleted.name)
-    #     (deleted / ".git").unlink()
-    # else:
-    #     loaded_manager.create_backup(deleted.name)
-    # variations.insert(0, deleted)
-    # loaded_manager._world = orig_world
-    # test_restore_backup(loaded_manager, variations, subtests)
+    orig_world = loaded_manager._world
+    loaded_manager._world = deleted
+    if isinstance(loaded_manager, GitBackupManager):
+        loaded_manager.prepare()
+        loaded_manager.create_backup(deleted.name)
+        (deleted / ".git").unlink()
+    else:
+        loaded_manager.create_backup(deleted.name)
+    variations.insert(0, deleted)
+    loaded_manager._world = orig_world
+    test_restore_backup(loaded_manager, variations, subtests)
 
 
 def test_preserve_ignore(manager: BaseBackupManager[Any]) -> None:
