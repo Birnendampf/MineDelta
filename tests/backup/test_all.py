@@ -1,6 +1,6 @@
 import filecmp
 import os
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -57,20 +57,26 @@ def test_restore_backup(
     world_variations: Iterable[Path],
     subtests: pytest.Subtests,
 ) -> None:
-    if loaded_manager.index_by == "idx":
-
-        def restore_func(idx: int) -> None:
-            loaded_manager.restore_backup(idx)
-    else:
-        infos = loaded_manager.list_backups()
-
-        def restore_func(idx: int) -> None:
-            return loaded_manager.restore_backup(infos[idx].id)
+    restore_func = get_restore_func(loaded_manager)
 
     for i, variation in enumerate(world_variations):
         with subtests.test(idx=i):
             restore_func(i)
             assert_matches_world(Path(loaded_manager._world), variation)
+
+
+def get_restore_func(manager: BaseBackupManager[Any]) -> Callable[[int], None]:
+    if manager.index_by == "idx":
+
+        def restore_func(idx: int) -> None:
+            manager.restore_backup(idx)
+    else:
+        infos = manager.list_backups()
+
+        def restore_func(idx: int) -> None:
+            manager.restore_backup(infos[idx].id)
+
+    return restore_func
 
 
 @pytest.mark.parametrize("delete_idx", range(2))
@@ -99,3 +105,32 @@ def test_delete_backup(
     # variations.insert(0, deleted)
     # loaded_manager._world = orig_world
     # test_restore_backup(loaded_manager, variations, subtests)
+
+
+def test_preserve_ignore(manager: BaseBackupManager[Any]) -> None:
+    ignored_files = []
+    manager.create_backup("empty")
+    world = Path(manager._world)
+
+    icon = world / "icon.png"
+    icon.touch()
+    ignored_files.append(icon)
+
+    session_lock = world / "session.lock"
+    session_lock.touch()
+    ignored_files.append(session_lock)
+
+    deep_ignored = world / "DIM-1" / "data" / "DistantHorizons.sqlite"
+    deep_ignored.parent.mkdir(parents=True)
+    deep_ignored.write_text("Not a real DB lol")
+    ignored_files.append(deep_ignored)
+
+    some_pack = world / "datapacks" / "some_pack"
+    some_pack.parent.mkdir()
+    some_pack.touch()
+    ignored_files.append(some_pack)
+
+    restore_func = get_restore_func(manager)
+    restore_func(0)
+    for file in ignored_files:
+        assert file.exists()
