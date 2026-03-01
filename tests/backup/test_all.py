@@ -134,3 +134,7 @@ def test_preserve_ignore(manager: BaseBackupManager[Any]) -> None:
     restore_func(0)
     for file in ignored_files:
         assert file.exists()
+
+
+def test_empty_list_backups(manager: BaseBackupManager[Any]) -> None:
+    assert not manager.list_backups()
