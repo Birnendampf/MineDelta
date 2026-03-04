@@ -350,7 +350,7 @@ def _collect_filter_tasks(tasks: list[concurrent.futures.Future[None]]) -> None:
 def _filter_region(
     src_file: Path, dest_file: Path, is_chunk: bool, progress: Callable[[Path], None]
 ) -> None:
-    with RegionFile.open(src_file) as new_region, RegionFile.open(dest_file) as old_region:
+    with RegionFile(src_file) as new_region, RegionFile(dest_file) as old_region:
         unchanged = old_region.filter_diff_defragment(new_region, is_chunk)
         if unchanged:
             dest_file.unlink()
@@ -373,7 +373,7 @@ class _RegionFileCache:
     def get(self, path: Path) -> RegionFile:
         with contextlib.suppress(KeyError):
             return self._cached_regions[path]
-        new_region = self._exit_stack.enter_context(RegionFile.open(path))
+        new_region = self._exit_stack.enter_context(RegionFile(path))
         self._cached_regions[path] = new_region
         return new_region
 
@@ -398,11 +398,9 @@ def _apply_diff(
             dest_file = dest_dirpath / file
             if _should_apply_diff(src_file, dest_file):
                 dest_region_cm = (
-                    contextlib.nullcontext(cache.get(dest_file))
-                    if cache
-                    else RegionFile.open(dest_file)
+                    contextlib.nullcontext(cache.get(dest_file)) if cache else RegionFile(dest_file)
                 )
-                with RegionFile.open(src_file) as src_region, dest_region_cm as dest_region:
+                with RegionFile(src_file) as src_region, dest_region_cm as dest_region:
                     dest_region.apply_diff(src_region, defragment)
             else:
                 shutil.copy2(src_file, dest_file)

@@ -53,31 +53,24 @@ class TestRegionFile:
     def test_open(self, tmp_path: Path) -> None:
         mca_file = tmp_path / "r.0.0.mca"
         mca_file.touch()
-        with pytest.raises(region.EmptyRegionError), region.RegionFile.open(mca_file):
+        with pytest.raises(region.EmptyRegionError), region.RegionFile(mca_file):
             ...
 
         with mca_file.open("wb") as f:
             f.truncate(4096)
         with (
             pytest.raises(region.RegionLoadingError, match="Chunk headers appear truncated"),
-            region.RegionFile.open(mca_file),
-        ):
-            ...
-        with (
-            open(mca_file, "rb", 0) as file,
-            pytest.raises(PermissionError),
-            region.RegionFile(file.fileno()),
+            region.RegionFile(mca_file),
         ):
             ...
 
     def test_headers_empty(self, bare_region_file: Path) -> None:
-        with open(bare_region_file, "r+b", 0) as f:
-            with region.RegionFile(f.fileno()) as r, pytest.raises(RuntimeError), r:
-                ...
-            with r:
-                assert len(r._headers) == 1024
-                for i, header in enumerate(r._headers):
-                    assert header.not_created, f"header {i} should be not created"
+        with region.RegionFile(bare_region_file) as r, pytest.raises(RuntimeError), r:
+            ...
+        with r:
+            assert len(r._headers) == 1024
+            for i, header in enumerate(r._headers):
+                assert header.not_created, f"header {i} should be not created"
 
     @pytest.mark.parametrize("compression", helpers.Compression)
     @pytest.mark.parametrize(
@@ -97,7 +90,7 @@ class TestRegionFile:
     ) -> None:
         tag = nbt.CompoundTag({"LastUpdate": 1, "SomeArray": bytearray(range(255))})
         helpers.write_nbt_to_region_file(bare_region_file, 0, 1, tag, compression, external)
-        with region.RegionFile.open(bare_region_file) as r:
+        with region.RegionFile(bare_region_file) as r:
             check_chunk_at_idx_matches(r, 0, tag)
 
     @pytest.mark.parametrize(
@@ -117,8 +110,8 @@ class TestRegionFile:
             other_dummy, 0, timestamp, nbt.CompoundTag({"LastUpdate": nbt.LongTag(last_update)})
         )
         with (
-            region.RegionFile.open(dummy_region_file) as this,
-            region.RegionFile.open(other_dummy) as other,
+            region.RegionFile(dummy_region_file) as this,
+            region.RegionFile(other_dummy) as other,
         ):
             assert expected == this._check_unchanged(
                 this._headers[0], other, other._headers[0], is_chunk
@@ -131,17 +124,17 @@ class TestRegionFile:
             other_dummy, 0, 0, nbt.CompoundTag({"asd": nbt.LongTag(1)})
         )
         with (
-            region.RegionFile.open(dummy_region_file) as this,
-            region.RegionFile.open(other_dummy) as other,
+            region.RegionFile(dummy_region_file) as this,
+            region.RegionFile(other_dummy) as other,
         ):
             assert not this._check_unchanged(this._headers[0], other, other._headers[0], False)
 
     def test_density_defragment(self, dummy_region_file: Path) -> None:
-        with region.RegionFile.open(dummy_region_file) as r:
+        with region.RegionFile(dummy_region_file) as r:
             assert r.density() == 1
         tag = nbt.CompoundTag({"LastUpdate": nbt.LongTag(1), "hello": "world"})
         helpers.write_nbt_to_region_file(dummy_region_file, 0, 1, tag)
-        with region.RegionFile.open(dummy_region_file) as r:
+        with region.RegionFile(dummy_region_file) as r:
             assert r.density() == 0.75
             r.defragment()
             assert r.density() == 1
@@ -149,7 +142,7 @@ class TestRegionFile:
 
     def test_overlapping_chunks(self, dummy_region_file: Path) -> None:
         helpers.write_nbt_to_region_file(dummy_region_file, 1, 1)
-        with region.RegionFile.open(dummy_region_file) as r:
+        with region.RegionFile(dummy_region_file) as r:
             r._headers[1].offset = 2
             with pytest.raises(region.CorruptedRegionError):
                 r.defragment()
@@ -159,8 +152,8 @@ class TestRegionFile:
 class TestDiffOperations:
     def test_identical(self, dummy_region_file: Path, other_dummy: Path) -> None:
         with (
-            region.RegionFile.open(dummy_region_file) as this,
-            region.RegionFile.open(other_dummy) as other,
+            region.RegionFile(dummy_region_file) as this,
+            region.RegionFile(other_dummy) as other,
         ):
             assert this.filter_diff_defragment(other)
             assert this._headers[0].unmodified
@@ -175,8 +168,8 @@ class TestDiffOperations:
         tag = nbt.CompoundTag({"LastUpdate": nbt.LongTag(1), "hello": "world"})
         helpers.write_nbt_to_region_file(dummy_region_file, 1, 1, tag)
         with (
-            region.RegionFile.open(dummy_region_file) as added,
-            region.RegionFile.open(other_dummy) as other,
+            region.RegionFile(dummy_region_file) as added,
+            region.RegionFile(other_dummy) as other,
         ):
             # yes its ugly but leads to nicer test failures
             if swap:
@@ -208,10 +201,10 @@ class TestDiffOperations:
         if added_size:  # overwrite + doesn't fit
             helpers.write_nbt_to_region_file(other_dummy, 2, 10, appended_tag)
         helpers.write_nbt_to_region_file(dummy_region_file, 3, 2)  # overwrite with not created
-        with region.RegionFile.open(other_dummy) as other:
+        with region.RegionFile(other_dummy) as other:
             other._headers[0].unmodified = True  # keep first
             other.defragment()
-            with region.RegionFile.open(dummy_region_file) as this:
+            with region.RegionFile(dummy_region_file) as this:
                 this.apply_diff(other, defragment)
                 assert (this.density() == 1) == defragment
                 for header in this._headers[:4]:
