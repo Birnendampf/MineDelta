@@ -12,8 +12,8 @@ import sys
 import tarfile
 import tempfile
 from collections.abc import Callable, Container
-from pathlib import Path, PurePath
-from typing import TYPE_CHECKING, Final, Self, TypeVar
+from pathlib import Path
+from typing import TYPE_CHECKING, Final, Self
 
 import msgspec
 
@@ -56,21 +56,22 @@ class BackupData(BackupInfo):
 
     @property
     def name(self) -> str:
-        return f"{self.id}.tar.gz"
-
-
-_PathT = TypeVar("_PathT", bound=PurePath)
+        """Return the name corresponding to this backup (id + ".tar.gz")."""
+        return self.id + ".tar.gz"
 
 
 def _extract_backup(
-    backup_dir: Path, temp_dir: _PathT, backup_name: str, skip: Container[str] | None = None
-) -> _PathT:
+    backup_dir: Path,
+    temp_dir: "StrPath",
+    backup_data: BackupData,
+    skip: Container[str] | None = None,
+) -> Path:
     """Extract only paths not listed in `skip`.
 
     Args:
         backup_dir: Directory to extract backups from.
         temp_dir: Directory to extract to.
-        backup_name: Name of backup to extract.
+        backup_data: Metadata of backup to extract.
         skip: Set of paths to skip.
 
     Returns:
@@ -90,8 +91,8 @@ def _extract_backup(
     else:
         custom_filter = tarfile.data_filter
 
-    extracted = temp_dir / backup_name
-    with tarfile.open(backup_dir / backup_name, "r:gz") as tar:
+    extracted = Path(temp_dir, backup_data.id)
+    with tarfile.open(backup_dir / backup_data.name, "r:gz") as tar:
         tar.extractall(extracted, filter=custom_filter)  # noqa: S202
     return extracted
 
@@ -149,22 +150,22 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 previous,
             ),
             # create Temporary directory in backup dir to ensure replace succeeds
-            tempfile.TemporaryDirectory(dir=self._backup_dir) as _temp_dir,
+            tempfile.TemporaryDirectory(dir=self._backup_dir) as temp_dir,
             _get_executor(executor) as ex,
         ):
-            temp_dir = Path(_temp_dir)
-            new_backup_file = temp_dir / new_backup.name
+            new_backup_file = Path(temp_dir, new_backup.name)
+            # the tarfile is intentionally opened and closed here, not in a seperate thread.
             with tarfile.open(new_backup_file, "x:gz") as new_tar:
                 progress("compressing world")
                 backup_fut = ex.submit(new_tar.add, self._world, "", filter=_backup_filter)
                 if previous:
-                    prev_world = _extract_backup(self._backup_dir, temp_dir, previous.name)
+                    prev_world = _extract_backup(self._backup_dir, temp_dir, previous)
                     progress(f'turning "{previous.id}" into diff')
                     not_present = _filter_diff(
                         src=self._world, dest=prev_world, executor=ex, progress=progress
                     )
                     progress(f'recompressing "{previous.id}"')
-                    new_previous = temp_dir / ("new_" + previous.name)
+                    new_previous = Path(temp_dir, previous.name)
                     with tarfile.open(new_previous, "x:gz") as prev_tar:
                         prev_tar.add(prev_world, "")
                 # ensure backup creation went well before overwriting previous
@@ -186,16 +187,13 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         backups_data = self._load_backups_data_validate_idx(id_)
         progress(f'restoring backup "{backups_data[id_].id}"')
         backups_slice = backups_data[1 : id_ + 1]
-        with tempfile.TemporaryDirectory() as _temp_dir, _get_executor(executor) as ex:
-            temp_dir = Path(_temp_dir)
+        with tempfile.TemporaryDirectory() as temp_dir, _get_executor(executor) as ex:
             tasks = []
             skip: frozenset[str] = frozenset()
             for backup in reversed(backups_slice):
-                tasks.append(
-                    ex.submit(_extract_backup, self._backup_dir, temp_dir, backup.name, skip)
-                )
+                tasks.append(ex.submit(_extract_backup, self._backup_dir, temp_dir, backup, skip))
                 skip |= backup.not_present
-            newest_backup = _extract_backup(self._backup_dir, temp_dir, backups_data[0].name, skip)
+            newest_backup = _extract_backup(self._backup_dir, temp_dir, backups_data[0], skip)
             with _RegionFileCache() as region_file_cache:
                 for i, (backup_data, extract_task) in enumerate(
                     zip(backups_slice, reversed(tasks), strict=True), 1
@@ -229,16 +227,15 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         chosen_not_present = data_chosen.not_present.copy()
         progress(f'merging "{data_older.id}" into "{data_chosen.id}"')
         older_archive = self._backup_dir / data_older.name
-        with tempfile.TemporaryDirectory() as _temp_dir, _get_executor(executor) as ex:
-            temp_dir = Path(_temp_dir)
+        with tempfile.TemporaryDirectory() as temp_dir, _get_executor(executor) as ex:
             chosen_fut = ex.submit(
                 _extract_backup,
                 self._backup_dir,
                 temp_dir,
-                data_chosen.name,
+                data_chosen,
                 data_older.not_present,
             )
-            older = _extract_backup(self._backup_dir, temp_dir, data_older.name)
+            older = _extract_backup(self._backup_dir, temp_dir, data_older)
             chosen = chosen_fut.result()
             _apply_diff(src=older, dest=chosen, defragment=True)
             # handle the following situation (1 being deleted):
@@ -329,6 +326,7 @@ def _filter_diff(
 
 
 def _collect_filter_tasks(tasks: list[concurrent.futures.Future[None]]) -> None:
+    """Await tasks and group exceptions, cancelling unfinished tasks if one occurs."""
     done, not_done = concurrent.futures.wait(tasks, return_when=concurrent.futures.FIRST_EXCEPTION)
     if not not_done:
         return
