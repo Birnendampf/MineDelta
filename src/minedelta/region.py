@@ -10,6 +10,7 @@ import operator
 import struct
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Final, Literal, NamedTuple, Self
 
 from .nbt import compare_nbt
@@ -17,7 +18,7 @@ from .nbt import compare_nbt
 if TYPE_CHECKING:
     import io
 
-    from _typeshed import ReadableBuffer, StrOrBytesPath, Unused, WriteableBuffer
+    from _typeshed import ReadableBuffer, StrPath, Unused, WriteableBuffer
 
 __all__ = [
     "DECOMP_LUT",
@@ -169,11 +170,11 @@ class RegionFile:
     This class can be used as a reusable context manager,
     """
 
-    __slots__ = ("_file_obj", "_headers", "_headers_changed", "_mmap", "_path")
+    __slots__ = ("_file_obj", "_headers", "_headers_changed", "_mmap", "_path", "_region_pos")
 
     _chunk_heading_struct: Final = struct.Struct("!iB")
 
-    def __init__(self, path: "StrOrBytesPath"):
+    def __init__(self, path: "StrPath"):
         """Create a new `RegionFile` object.
 
         This does not load any data yet, so most methods will raise `AttributeError`.
@@ -186,6 +187,7 @@ class RegionFile:
         self._headers: list[ChunkHeader] = []
         self._headers_changed = False
         self._file_obj: io.FileIO
+        self._region_pos: tuple[int, int]
 
     def __enter__(self) -> Self:
         """Map the region file into memory and load its headers.
@@ -240,6 +242,20 @@ class RegionFile:
             for idx, header in enumerate(self._headers):
                 header.dump(self._mmap, idx * 4)
         self._headers_changed = False
+
+    def get_mcc(self, idx: int) -> Path:
+        """Get the mcc file for the given header index."""
+        path = Path(self._path)
+        if hasattr(self, "_region_pos"):
+            region_x, region_z = self._region_pos
+        else:
+            _, region_x_str, region_z_str = path.stem.split(".")
+            # noinspection PyAttributeOutsideInit
+            region_x, region_z = self._region_pos = int(region_x_str) * 32, int(region_z_str) * 32
+        chunk_rel_z, chunk_rel_x = divmod(idx, 32)
+        chunk_x = chunk_rel_x + region_x * 32
+        chunk_z = chunk_rel_z + region_z * 32
+        return path.with_name(f"c.{chunk_x}.{chunk_z}.mcc")
 
     def _get_chunk_data(self, header: ChunkHeader) -> bytes:
         start = header.offset * SECTOR
