@@ -26,8 +26,8 @@ def assert_matches_world(world: Path, reference: Path) -> None:
             for file in compare.diff_files:
                 # noinspection PyTypeChecker
                 with (
-                    RegionFile.open(Path(compare.right, file)) as ref_region,
-                    RegionFile.open(Path(compare.left, file)) as actual_region,
+                    RegionFile(Path(compare.right, file)) as ref_region,
+                    RegionFile(Path(compare.left, file)) as actual_region,
                 ):
                     for ref_header, actual_header in zip(
                         ref_region._headers, actual_region._headers, strict=True

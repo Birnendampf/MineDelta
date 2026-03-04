@@ -8,13 +8,15 @@ import contextlib
 import mmap
 import operator
 import struct
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Final, Literal, NamedTuple, Self
 
 from .nbt import compare_nbt
 
 if TYPE_CHECKING:
+    import io
+
     from _typeshed import ReadableBuffer, StrOrBytesPath, Unused, WriteableBuffer
 
 __all__ = [
@@ -167,22 +169,23 @@ class RegionFile:
     This class can be used as a reusable context manager,
     """
 
-    __slots__ = ("_fd", "_headers", "_headers_changed", "_mmap")
+    __slots__ = ("_file_obj", "_headers", "_headers_changed", "_mmap", "_path")
 
     _chunk_heading_struct: Final = struct.Struct("!iB")
 
-    def __init__(self, fd: int):
+    def __init__(self, path: "StrOrBytesPath"):
         """Create a new `RegionFile` object.
 
         This does not load any data yet, so most methods will raise `AttributeError`.
 
         Args:
-            fd: The file descriptor pointing to a region file.
+            path: The region file that will be opened when entering the context.
         """
-        self._fd = fd
+        self._path = path
         self._mmap: mmap.mmap
         self._headers: list[ChunkHeader] = []
         self._headers_changed = False
+        self._file_obj: io.FileIO
 
     def __enter__(self) -> Self:
         """Map the region file into memory and load its headers.
@@ -196,30 +199,29 @@ class RegionFile:
         """
         if hasattr(self, "_mmap"):
             raise RuntimeError("Already loaded")
+        self._file_obj = open(self._path, "r+b", 0)
         try:
-            self._mmap = mmap.mmap(self._fd, 0, access=mmap.ACCESS_WRITE)
-        except ValueError as e:
-            raise EmptyRegionError("Region is empty") from e
-        if not self._headers:
-            self.load_headers()
+            try:
+                self._mmap = mmap.mmap(self._file_obj.fileno(), 0, access=mmap.ACCESS_WRITE)
+            except ValueError as e:
+                raise EmptyRegionError("Region is empty") from e
+            if not self._headers:
+                self.load_headers()
+        except Exception:
+            self._file_obj.close()
+            raise
         return self
 
     def __exit__(self, *_: "Unused") -> None:
         """Write chunk headers back to the file and release the mapping."""
         self.dump_headers()
         self._mmap.close()
-        del self._mmap
+        self._file_obj.close()
+        del self._mmap, self._file_obj
 
     def __len__(self) -> int:
         """The length of the region file."""
         return len(self._mmap)
-
-    @classmethod
-    @contextlib.contextmanager
-    def open(cls, file: "StrOrBytesPath") -> Iterator[Self]:
-        """Helper context manager for opening a region file from a path."""
-        with open(file, "r+b", 0) as f, cls(f.fileno()) as region:
-            yield region
 
     def load_headers(self) -> None:
         """Load the region file headers.
@@ -339,8 +341,8 @@ class RegionFile:
             other: Region to apply changes from
             defragment: Whether the file should also be defragmented
         """
-        # TODO: use os.sendfile or os.copy_file_range for improved performance (not
-        #  available on windows but winapi probably has something similar)
+        # we could use os.sendfile or os.copy_file_range for improved performance (not available on
+        # Windows but winapi probably has something similar)
         to_be_copied: list[tuple[ChunkHeader, ChunkHeader]] = []
         added_size = 0
         self._headers_changed = True
