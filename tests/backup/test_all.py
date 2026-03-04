@@ -143,3 +143,15 @@ def test_preserve_ignore(manager: BaseBackupManager[Any]) -> None:
 
 def test_empty_list_backups(manager: BaseBackupManager[Any]) -> None:
     assert not manager.list_backups()
+
+
+@pytest.mark.parametrize("method", ["delete_backup", "restore_backup"])
+def test_invalid_lookup(manager: BaseBackupManager[Any], method: str) -> None:
+    manager.create_backup("empty")
+    bound_method = getattr(manager, method)
+    wrong_indices = (
+        (1, -1) if manager.index_by == "idx" else (manager.list_backups()[0].id[::-1], "")
+    )
+    for wrong_idx in wrong_indices:
+        with pytest.raises(LookupError):
+            bound_method(wrong_idx)
