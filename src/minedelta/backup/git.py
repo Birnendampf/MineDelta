@@ -210,5 +210,5 @@ class GitBackupManager(BaseBackupManager[str]):
                 datetime.timezone(datetime.timedelta(seconds=commit.commit_timezone)),
             ),
             commit.sha().hexdigest(),
-            commit.message,
+            commit.message.decode("utf-8"),
         )
