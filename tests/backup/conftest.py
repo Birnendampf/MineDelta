@@ -19,12 +19,12 @@ WorldVariations: TypeAlias = tuple[Path, ...]
 
 @pytest.fixture(scope="session")
 def _world_0(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return tmp_path_factory.mktemp("world_0")
+    return tmp_path_factory.mktemp("world_0", False)
 
 
 @pytest.fixture(scope="session")
 def _world_1(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    world_dir = tmp_path_factory.mktemp("world_1")
+    world_dir = tmp_path_factory.mktemp("world_1", False)
     # make non chunk mca file
     poi_region = world_dir / "poi" / "r.0.0.mca"
     poi_region.parent.mkdir()
@@ -63,7 +63,7 @@ def _world_1(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def _world_2(tmp_path_factory: pytest.TempPathFactory, _world_1: Path) -> Path:
-    world_dir = tmp_path_factory.mktemp("world_2")
+    world_dir = tmp_path_factory.mktemp("world_2", False)
     shutil.copytree(_world_1, world_dir, dirs_exist_ok=True)
     very_deeply = world_dir / "very" / "deeply"
     (very_deeply / "here.dat").touch()
@@ -94,7 +94,7 @@ def _world_2(tmp_path_factory: pytest.TempPathFactory, _world_1: Path) -> Path:
 
 @pytest.fixture(scope="session")
 def _world_3(tmp_path_factory: pytest.TempPathFactory, _world_1: Path) -> Path:
-    world_dir = tmp_path_factory.mktemp("world_3")
+    world_dir = tmp_path_factory.mktemp("world_3", False)
     shutil.copytree(_world_1, world_dir, dirs_exist_ok=True)
     (world_dir / "level.dat").write_text("level 3")
     chunk_region_dir = world_dir / "region"
@@ -110,7 +110,7 @@ def _world_3(tmp_path_factory: pytest.TempPathFactory, _world_1: Path) -> Path:
 
 
 def id_func(value: tuple[int, ...]) -> str:
-    return str(value)
+    return f"({' '.join(str(val) for val in value)})"
 
 
 @pytest.fixture(
