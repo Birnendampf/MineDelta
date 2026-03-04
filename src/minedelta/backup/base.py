@@ -153,7 +153,7 @@ class _MetaDataManager(BaseBackupManager[int], Generic[_BackupInfoT], metaclass=
     index_by = "idx"
     __slots__ = ("_backups_data_path",)
 
-    _BackupDataENCODER: ClassVar = msgspec.msgpack.Encoder(uuid_format="bytes")
+    _BackupDataENCODER: ClassVar = msgspec.msgpack.Encoder()
     # noinspection PyClassVar
     _BackupDataDECODER: ClassVar[msgspec.msgpack.Decoder[list[_BackupInfoT]]] = (
         msgspec.msgpack.Decoder(list[BackupInfo])
@@ -188,7 +188,7 @@ class _MetaDataManager(BaseBackupManager[int], Generic[_BackupInfoT], metaclass=
             backups_data = self._load_backups_data()
         except FileNotFoundError:
             return []
-        return msgspec.convert(backups_data, list[BackupInfo], from_attributes=True)
+        return [BackupInfo(info.timestamp, info.id, info.desc) for info in backups_data]
 
     def _load_backups_data_validate_idx(self, idx: int) -> list[_BackupInfoT]:
         if idx < 0:

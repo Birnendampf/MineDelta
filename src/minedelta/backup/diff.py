@@ -174,7 +174,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 previous.not_present = not_present
                 new_previous.replace(self._backup_dir / previous.name)
 
-        return msgspec.convert(new_backup, BackupInfo, from_attributes=True)
+        return BackupInfo(new_backup.timestamp, new_backup.id, new_backup.desc)
 
     @override
     def restore_backup(
