@@ -136,3 +136,6 @@ follow_untyped_imports = true
 [tool.coverage.run]
 branch = true
 command_line = "-m pytest"
+
+[tool.pytest]
+verbosity_subtests = "0"
