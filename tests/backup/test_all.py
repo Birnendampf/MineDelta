@@ -59,8 +59,13 @@ def test_restore_backup(
 ) -> None:
     restore_func = get_restore_func(loaded_manager)
 
+    with subtests.test("check info"):
+        assert [variation.name for variation in world_variations] == [
+            info.desc for info in loaded_manager.list_backups()
+        ]
+
     for i, variation in enumerate(world_variations):
-        with subtests.test(idx=i):
+        with subtests.test("check world", idx=i):
             restore_func(i)
             assert_matches_world(Path(loaded_manager._world), variation)
 
