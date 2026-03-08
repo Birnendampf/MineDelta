@@ -3,12 +3,12 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 
 #[derive(PartialEq)]
-enum RawCompound<'a> {
+enum RawTag<'a> {
     Mem(&'a [u8]),
-    Map(HashMap<&'a [u8], RawCompound<'a>>),
-    List(Vec<RawCompound<'a>>),
+    Compound(HashMap<&'a [u8], RawTag<'a>>),
+    List(Vec<RawTag<'a>>),
 }
-type ParseFuncType = for<'a> fn(&mut &'a [u8]) -> PyResult<RawCompound<'a>>;
+type ParseFuncType = for<'a> fn(&mut &'a [u8]) -> PyResult<RawTag<'a>>;
 
 const TAG_LUT: [ParseFuncType; 12] = [
     get_raw_numeric::<1>, //  TAG_Byte
@@ -26,11 +26,11 @@ const TAG_LUT: [ParseFuncType; 12] = [
 ];
 const TAG_SIZE_LUT: [u8; 7] = [0, 1, 2, 4, 8, 4, 8];
 
-fn get_raw_numeric<'a, const N: usize>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
-    Ok(RawCompound::Mem(split_off(data, N)?))
+fn get_raw_numeric<'a, const N: usize>(data: &mut &'a [u8]) -> PyResult<RawTag<'a>> {
+    Ok(RawTag::Mem(split_off(data, N)?))
 }
 
-fn get_raw_array<'a, const N: usize>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
+fn get_raw_array<'a, const N: usize>(data: &mut &'a [u8]) -> PyResult<RawTag<'a>> {
     let length = u32::from_be_bytes(split_off_chunk(data)?);
     let byte_len = (length as usize).checked_mul(N).ok_or_else(|| {
         PyOverflowError::new_err(
@@ -38,15 +38,15 @@ fn get_raw_array<'a, const N: usize>(data: &mut &'a [u8]) -> PyResult<RawCompoun
             (consider using a 64 bit version of this package)",
         )
     })?;
-    Ok(RawCompound::Mem(split_off(data, byte_len)?))
+    Ok(RawTag::Mem(split_off(data, byte_len)?))
 }
 
-fn get_raw_string<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
+fn get_raw_string<'a>(data: &mut &'a [u8]) -> PyResult<RawTag<'a>> {
     let length = get_u16(data)? as usize;
-    Ok(RawCompound::Mem(split_off(data, length)?))
+    Ok(RawTag::Mem(split_off(data, length)?))
 }
 
-fn get_raw_list<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
+fn get_raw_list<'a>(data: &mut &'a [u8]) -> PyResult<RawTag<'a>> {
     let tag_id = get_u8(data)? as usize;
     let size = u32::from_be_bytes(split_off_chunk(data)?) as usize;
     if tag_id < 7 {
@@ -57,7 +57,7 @@ fn get_raw_list<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
                 (consider using a 64 bit version of this package)",
             )
         })?;
-        return Ok(RawCompound::Mem(split_off(data, byte_len)?));
+        return Ok(RawTag::Mem(split_off(data, byte_len)?));
     }
     let parse_func = TAG_LUT
         .get(tag_id - 1)
@@ -67,10 +67,10 @@ fn get_raw_list<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
         res.push(parse_func(data)?)
     }
 
-    Ok(RawCompound::List(res))
+    Ok(RawTag::List(res))
 }
 
-fn get_raw_compound<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
+fn get_raw_compound<'a>(data: &mut &'a [u8]) -> PyResult<RawTag<'a>> {
     let mut result = HashMap::new();
     loop {
         let tag_id = get_u8(data)?;
@@ -85,10 +85,10 @@ fn get_raw_compound<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
         let compound = parse_func(data)?;
         result.insert(name, compound);
     }
-    Ok(RawCompound::Map(result))
+    Ok(RawTag::Compound(result))
 }
 
-fn load_nbt_raw(data: &'_ [u8]) -> PyResult<RawCompound<'_>> {
+fn load_nbt_raw(data: &'_ [u8]) -> PyResult<RawTag<'_>> {
     let mut data = data;
     let data = &mut data;
     if get_u8(data)? != 10 {
@@ -158,7 +158,7 @@ fn do_compare(
     let right = load_nbt_raw(right).map_err(|e| (e, "right"))?;
     match (exclude_last_update, left, right) {
         (false, left, right) => Ok(left == right),
-        (true, RawCompound::Map(mut left), RawCompound::Map(mut right)) => {
+        (true, RawTag::Compound(mut left), RawTag::Compound(mut right)) => {
             let key = b"LastUpdate".as_slice();
             left.remove(key);
             right.remove(key);

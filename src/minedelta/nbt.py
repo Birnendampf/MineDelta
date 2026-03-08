@@ -6,8 +6,8 @@ import struct
 from collections.abc import Callable
 from typing import TypeAlias
 
-RawCompound: TypeAlias = bytes | dict[bytes, "RawCompound"] | list["RawCompound"]
-_parse_func_type: TypeAlias = Callable[[io.BytesIO], RawCompound]
+RawTag: TypeAlias = bytes | dict[bytes, "RawTag"] | list["RawTag"]
+_parse_func_type: TypeAlias = Callable[[io.BytesIO], RawTag]
 
 _U_SHORT = struct.Struct("!H")
 _U_INT = struct.Struct("!I")
@@ -27,7 +27,7 @@ def _get_raw_string(stream: io.BytesIO) -> bytes:
     return stream.read(length)
 
 
-def _get_raw_list(stream: io.BytesIO) -> bytes | list[RawCompound]:
+def _get_raw_list(stream: io.BytesIO) -> bytes | list[RawTag]:
     tag_id = stream.read(1)[0]
     size = _U_INT.unpack(stream.read(4))[0]
 
@@ -43,8 +43,8 @@ def _get_raw_list(stream: io.BytesIO) -> bytes | list[RawCompound]:
     return [parse_func(stream) for _ in range(size)]
 
 
-def _get_raw_compound(stream: io.BytesIO) -> dict[bytes, RawCompound]:
-    result: dict[bytes, RawCompound] = {}
+def _get_raw_compound(stream: io.BytesIO) -> dict[bytes, RawTag]:
+    result: dict[bytes, RawTag] = {}
 
     while tag_id := stream.read(1)[0]:
         try:
@@ -71,7 +71,7 @@ TAG_LUT: list[_parse_func_type] = [
 ]
 
 
-def load_nbt_raw(data: bytes) -> dict[bytes, RawCompound]:
+def load_nbt_raw(data: bytes) -> dict[bytes, RawTag]:
     """Get the overall structure of a nbt file, while parsing as little of it as possible.
 
     Raises:
@@ -92,7 +92,7 @@ def load_nbt_raw(data: bytes) -> dict[bytes, RawCompound]:
         raise exc
 
 
-def _load_add_exc_note(data: bytes, left: bool) -> dict[bytes, RawCompound]:
+def _load_add_exc_note(data: bytes, left: bool) -> dict[bytes, RawTag]:
     try:
         return load_nbt_raw(data)
     except Exception as exc:
