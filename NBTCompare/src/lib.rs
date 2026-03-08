@@ -31,8 +31,8 @@ fn get_raw_numeric<'a, const N: usize>(data: &mut &'a [u8]) -> PyResult<RawCompo
 }
 
 fn get_raw_array<'a, const N: usize>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
-    let size = u32::from_be_bytes(split_off_chunk(data)?);
-    let byte_len = (size as usize).checked_mul(N).ok_or_else(|| {
+    let length = u32::from_be_bytes(split_off_chunk(data)?);
+    let byte_len = (length as usize).checked_mul(N).ok_or_else(|| {
         PyOverflowError::new_err(
             "Overflow when calculating array length \
             (consider using a 64 bit version of this package)",
@@ -71,7 +71,7 @@ fn get_raw_list<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
 }
 
 fn get_raw_compound<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
-    let mut map = HashMap::new();
+    let mut result = HashMap::new();
     loop {
         let tag_id = get_u8(data)?;
         if tag_id == 0 {
@@ -83,9 +83,9 @@ fn get_raw_compound<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
         let name_len = get_u16(data)?;
         let name = split_off(data, name_len.into())?;
         let compound = parse_func(data)?;
-        map.insert(name, compound);
+        result.insert(name, compound);
     }
-    Ok(RawCompound::Map(map))
+    Ok(RawCompound::Map(result))
 }
 
 fn load_nbt_raw(data: &'_ [u8]) -> PyResult<RawCompound<'_>> {

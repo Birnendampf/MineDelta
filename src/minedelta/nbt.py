@@ -33,8 +33,8 @@ def _get_raw_list(stream: io.BytesIO) -> bytes | list[RawCompound]:
 
     if tag_id < 7:
         tag_size = TAG_SIZE_LUT[tag_id]
-        arr_byte_len = tag_size * size
-        return stream.read(arr_byte_len)
+        byte_len = tag_size * size
+        return stream.read(byte_len)
 
     try:
         parse_func = TAG_LUT[tag_id - 1]
@@ -52,8 +52,8 @@ def _get_raw_compound(stream: io.BytesIO) -> dict[bytes, RawCompound]:
         except IndexError:
             raise ValueError(f"Unknown tag id in Compound: {tag_id}") from None
         name_len = _U_SHORT.unpack(stream.read(2))[0]
-        raw_name = stream.read(name_len)
-        result[raw_name] = parse_func(stream)
+        name = stream.read(name_len)
+        result[name] = parse_func(stream)
 
     return result
 
