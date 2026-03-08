@@ -27,8 +27,7 @@ const TAG_LUT: [ParseFuncType; 12] = [
 const TAG_SIZE_LUT: [u8; 7] = [0, 1, 2, 4, 8, 4, 8];
 
 fn get_raw_numeric<'a, const N: usize>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
-    let num = split_off(data, N)?;
-    Ok(RawCompound::Mem(num))
+    Ok(RawCompound::Mem(split_off(data, N)?))
 }
 
 fn get_raw_array<'a, const N: usize>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
@@ -100,10 +99,9 @@ fn load_nbt_raw(data: &'_ [u8]) -> PyResult<RawCompound<'_>> {
 // Helper Functions
 
 fn split_off<'a>(data: &mut &'a [u8], amount: usize) -> PyResult<&'a [u8]> {
-    let name = data
+    Ok(data
         .split_off(..amount)
-        .ok_or(PyEOFError::new_err("Unexpected EOF"))?;
-    Ok(name)
+        .ok_or(PyEOFError::new_err("Unexpected EOF"))?)
 }
 
 fn get_u16(data: &mut &[u8]) -> PyResult<u16> {
