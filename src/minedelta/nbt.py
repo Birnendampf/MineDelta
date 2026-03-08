@@ -6,8 +6,8 @@ import struct
 from collections.abc import Callable
 from typing import TypeAlias
 
-RawCompound: TypeAlias = bytes | dict[bytes, "RawCompound"] | list["RawCompound"]
-_parse_func_type: TypeAlias = Callable[[io.BytesIO], RawCompound]
+RawTag: TypeAlias = bytes | dict[bytes, "RawTag"] | list["RawTag"]
+_parse_func_type: TypeAlias = Callable[[io.BytesIO], RawTag]
 
 _U_SHORT = struct.Struct("!H")
 _U_INT = struct.Struct("!I")
@@ -27,14 +27,14 @@ def _get_raw_string(stream: io.BytesIO) -> bytes:
     return stream.read(length)
 
 
-def _get_raw_list(stream: io.BytesIO) -> bytes | list[RawCompound]:
+def _get_raw_list(stream: io.BytesIO) -> bytes | list[RawTag]:
     tag_id = stream.read(1)[0]
     size = _U_INT.unpack(stream.read(4))[0]
 
     if tag_id < 7:
         tag_size = TAG_SIZE_LUT[tag_id]
-        arr_byte_len = tag_size * size
-        return stream.read(arr_byte_len)
+        byte_len = tag_size * size
+        return stream.read(byte_len)
 
     try:
         parse_func = TAG_LUT[tag_id - 1]
@@ -43,8 +43,8 @@ def _get_raw_list(stream: io.BytesIO) -> bytes | list[RawCompound]:
     return [parse_func(stream) for _ in range(size)]
 
 
-def _get_raw_compound(stream: io.BytesIO) -> dict[bytes, RawCompound]:
-    result: dict[bytes, RawCompound] = {}
+def _get_raw_compound(stream: io.BytesIO) -> dict[bytes, RawTag]:
+    result: dict[bytes, RawTag] = {}
 
     while tag_id := stream.read(1)[0]:
         try:
@@ -52,8 +52,8 @@ def _get_raw_compound(stream: io.BytesIO) -> dict[bytes, RawCompound]:
         except IndexError:
             raise ValueError(f"Unknown tag id in Compound: {tag_id}") from None
         name_len = _U_SHORT.unpack(stream.read(2))[0]
-        raw_name = stream.read(name_len)
-        result[raw_name] = parse_func(stream)
+        name = stream.read(name_len)
+        result[name] = parse_func(stream)
 
     return result
 
@@ -71,7 +71,7 @@ TAG_LUT: list[_parse_func_type] = [
 ]
 
 
-def load_nbt_raw(data: bytes) -> dict[bytes, RawCompound]:
+def load_nbt_raw(data: bytes) -> dict[bytes, RawTag]:
     """Get the overall structure of a nbt file, while parsing as little of it as possible.
 
     Raises:
@@ -92,7 +92,7 @@ def load_nbt_raw(data: bytes) -> dict[bytes, RawCompound]:
         raise exc
 
 
-def _load_add_exc_note(data: bytes, left: bool) -> dict[bytes, RawCompound]:
+def _load_add_exc_note(data: bytes, left: bool) -> dict[bytes, RawTag]:
     try:
         return load_nbt_raw(data)
     except Exception as exc:
@@ -102,12 +102,12 @@ def _load_add_exc_note(data: bytes, left: bool) -> dict[bytes, RawCompound]:
 
 def _py_compare_nbt(left: bytes, right: bytes, exclude_last_update: bool = False) -> bool:
     """Compare two NBT files."""
-    this_nbt = _load_add_exc_note(left, True)
-    other_nbt = _load_add_exc_note(right, False)
+    left_nbt = _load_add_exc_note(left, True)
+    right_nbt = _load_add_exc_note(right, False)
     if exclude_last_update:
-        this_nbt.pop(b"LastUpdate", None)
-        other_nbt.pop(b"LastUpdate", None)
-    return this_nbt == other_nbt
+        left_nbt.pop(b"LastUpdate", None)
+        right_nbt.pop(b"LastUpdate", None)
+    return left_nbt == right_nbt
 
 
 try:
