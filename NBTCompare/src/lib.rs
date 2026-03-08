@@ -31,13 +31,13 @@ fn get_raw_numeric<'a, const N: usize>(data: &mut &'a [u8]) -> PyResult<RawCompo
 }
 
 fn get_raw_array<'a, const N: usize>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
-    let arr_len = u32::from_be_bytes(split_off_chunk(data)?);
-    let byte_len = (arr_len as usize)
-        .checked_mul(N)
-        .ok_or(PyOverflowError::new_err(
+    let size = u32::from_be_bytes(split_off_chunk(data)?);
+    let byte_len = (size as usize).checked_mul(N).ok_or_else(|| {
+        PyOverflowError::new_err(
             "Overflow when calculating array length \
             (consider using a 64 bit version of this package)",
-        ))?;
+        )
+    })?;
     Ok(RawCompound::Mem(split_off(data, byte_len)?))
 }
 
@@ -51,11 +51,13 @@ fn get_raw_list<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
     let size = u32::from_be_bytes(split_off_chunk(data)?) as usize;
     if tag_id < 7 {
         let tag_size = TAG_SIZE_LUT[tag_id] as usize;
-        let arr_byte_len = tag_size.checked_mul(size).ok_or(PyOverflowError::new_err(
-            "Overflow when calculating list length \
-            (consider using a 64 bit version of this package)",
-        ))?;
-        return Ok(RawCompound::Mem(split_off(data, arr_byte_len)?));
+        let byte_len = tag_size.checked_mul(size).ok_or_else(|| {
+            PyOverflowError::new_err(
+                "Overflow when calculating list length \
+                (consider using a 64 bit version of this package)",
+            )
+        })?;
+        return Ok(RawCompound::Mem(split_off(data, byte_len)?));
     }
     let parse_func = TAG_LUT
         .get(tag_id - 1)
@@ -101,7 +103,7 @@ fn load_nbt_raw(data: &'_ [u8]) -> PyResult<RawCompound<'_>> {
 fn split_off<'a>(data: &mut &'a [u8], amount: usize) -> PyResult<&'a [u8]> {
     Ok(data
         .split_off(..amount)
-        .ok_or(PyEOFError::new_err("Unexpected EOF"))?)
+        .ok_or_else(|| PyEOFError::new_err("Unexpected EOF"))?)
 }
 
 fn get_u16(data: &mut &[u8]) -> PyResult<u16> {
@@ -111,14 +113,14 @@ fn get_u16(data: &mut &[u8]) -> PyResult<u16> {
 fn get_u8(data: &mut &[u8]) -> PyResult<u8> {
     Ok(*data
         .split_off_first()
-        .ok_or(PyEOFError::new_err("Unexpected EOF"))?)
+        .ok_or_else(|| PyEOFError::new_err("Unexpected EOF"))?)
 }
 
 fn split_off_chunk<const N: usize>(data: &mut &[u8]) -> PyResult<[u8; N]> {
     let res: &[u8; N];
     (res, *data) = data
         .split_first_chunk()
-        .ok_or(PyEOFError::new_err("Unexpected EOF"))?;
+        .ok_or_else(|| PyEOFError::new_err("Unexpected EOF"))?;
     Ok(*res)
 }
 
