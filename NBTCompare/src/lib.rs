@@ -71,6 +71,10 @@ fn get_raw_list<'a>(data: &mut &'a [u8]) -> PyResult<RawTag<'a>> {
 }
 
 fn get_raw_compound<'a>(data: &mut &'a [u8]) -> PyResult<RawTag<'a>> {
+    Ok(RawTag::Compound(raw_compound_helper(data)?))
+}
+
+fn raw_compound_helper<'a>(data: &mut &'a [u8]) -> PyResult<HashMap<&'a [u8], RawTag<'a>>> {
     let mut result = HashMap::new();
     loop {
         let tag_id = get_u8(data)?;
@@ -85,10 +89,10 @@ fn get_raw_compound<'a>(data: &mut &'a [u8]) -> PyResult<RawTag<'a>> {
         let compound = parse_func(data)?;
         result.insert(name, compound);
     }
-    Ok(RawTag::Compound(result))
+    Ok(result)
 }
 
-fn load_nbt_raw(data: &'_ [u8]) -> PyResult<RawTag<'_>> {
+fn load_nbt_raw(data: &[u8]) -> PyResult<HashMap<&[u8], RawTag<'_>>> {
     let mut data = data;
     let data = &mut data;
     if get_u8(data)? != 10 {
@@ -96,7 +100,7 @@ fn load_nbt_raw(data: &'_ [u8]) -> PyResult<RawTag<'_>> {
     }
     let name_len = get_u16(data)?;
     let _ = split_off(data, name_len.into())?;
-    get_raw_compound(data)
+    raw_compound_helper(data)
 }
 
 // Helper Functions
@@ -135,7 +139,7 @@ mod _core {
     #[pyfunction]
     #[pyo3(signature = (left, right, exclude_last_update = false))]
     fn compare(
-        py: Python<'_>,
+        py: Python,
         left: &[u8],
         right: &[u8],
         exclude_last_update: bool,
@@ -154,16 +158,12 @@ fn do_compare(
     right: &[u8],
     exclude_last_update: bool,
 ) -> Result<bool, (PyErr, &'static str)> {
-    let left = load_nbt_raw(left).map_err(|e| (e, "left"))?;
-    let right = load_nbt_raw(right).map_err(|e| (e, "right"))?;
-    match (exclude_last_update, left, right) {
-        (false, left, right) => Ok(left == right),
-        (true, RawTag::Compound(mut left), RawTag::Compound(mut right)) => {
-            let key = b"LastUpdate".as_slice();
-            left.remove(key);
-            right.remove(key);
-            Ok(left == right)
-        }
-        _ => unreachable!(),
+    let mut left = load_nbt_raw(left).map_err(|e| (e, "left"))?;
+    let mut right = load_nbt_raw(right).map_err(|e| (e, "right"))?;
+    if exclude_last_update {
+        const KEY: &[u8] = b"LastUpdate".as_slice();
+        left.remove(KEY);
+        right.remove(KEY);
     }
+    Ok(left == right)
 }

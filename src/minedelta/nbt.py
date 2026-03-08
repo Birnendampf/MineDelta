@@ -102,12 +102,12 @@ def _load_add_exc_note(data: bytes, left: bool) -> dict[bytes, RawTag]:
 
 def _py_compare_nbt(left: bytes, right: bytes, exclude_last_update: bool = False) -> bool:
     """Compare two NBT files."""
-    this_nbt = _load_add_exc_note(left, True)
-    other_nbt = _load_add_exc_note(right, False)
+    left_nbt = _load_add_exc_note(left, True)
+    right_nbt = _load_add_exc_note(right, False)
     if exclude_last_update:
-        this_nbt.pop(b"LastUpdate", None)
-        other_nbt.pop(b"LastUpdate", None)
-    return this_nbt == other_nbt
+        left_nbt.pop(b"LastUpdate", None)
+        right_nbt.pop(b"LastUpdate", None)
+    return left_nbt == right_nbt
 
 
 try:
