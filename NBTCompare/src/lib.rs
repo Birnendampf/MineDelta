@@ -90,20 +90,31 @@ fn get_raw_compound<'a>(data: &mut &'a [u8]) -> PyResult<RawCompound<'a>> {
 
 fn load_nbt_raw(data: &'_ [u8]) -> PyResult<RawCompound<'_>> {
     let mut data = data;
-    if get_u8(&mut data)? != 10 {
+    let data = &mut data;
+    if get_u8(data)? != 10 {
         return Err(PyValueError::new_err("Root tag is not Compound"));
     }
-    let name_len = get_u16(&mut data)?;
-    let _ = data.split_off(..name_len.into());
-    get_raw_compound(&mut data)
+    let name_len = get_u16(data)?;
+    let _ = split_off(data, name_len.into())?;
+    get_raw_compound(data)
 }
 
 // Helper Functions
 
 fn split_off<'a>(data: &mut &'a [u8], amount: usize) -> PyResult<&'a [u8]> {
-    Ok(data
-        .split_off(..amount)
-        .ok_or_else(|| PyEOFError::new_err("Unexpected EOF"))?)
+    let res;
+    (res, *data) = data
+        .split_at_checked(amount)
+        .ok_or_else(|| PyEOFError::new_err("Unexpected EOF"))?;
+    Ok(res)
+}
+
+fn split_off_chunk<const N: usize>(data: &mut &[u8]) -> PyResult<[u8; N]> {
+    let res;
+    (res, *data) = data
+        .split_first_chunk()
+        .ok_or_else(|| PyEOFError::new_err("Unexpected EOF"))?;
+    Ok(*res)
 }
 
 fn get_u16(data: &mut &[u8]) -> PyResult<u16> {
@@ -114,14 +125,6 @@ fn get_u8(data: &mut &[u8]) -> PyResult<u8> {
     Ok(*data
         .split_off_first()
         .ok_or_else(|| PyEOFError::new_err("Unexpected EOF"))?)
-}
-
-fn split_off_chunk<const N: usize>(data: &mut &[u8]) -> PyResult<[u8; N]> {
-    let res: &[u8; N];
-    (res, *data) = data
-        .split_first_chunk()
-        .ok_or_else(|| PyEOFError::new_err("Unexpected EOF"))?;
-    Ok(*res)
 }
 
 #[pymodule]
