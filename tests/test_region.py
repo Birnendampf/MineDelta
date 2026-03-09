@@ -72,49 +72,47 @@ class TestRegionFile:
             for i, header in enumerate(r._headers):
                 assert header.not_created, f"header {i} should be not created"
 
-    @pytest.mark.parametrize("compression", helpers.Compression)
-    @pytest.mark.parametrize(
-        "external",
-        [
-            pytest.param(
-                True,
-                marks=pytest.mark.xfail(
-                    reason=".mcc files not yet supported", raises=region.ChunkLoadingError
-                ),
-            ),
-            False,
-        ],
-    )
-    def test__get_chunk_data(
-        self, compression: helpers.Compression, external: bool, bare_region_file: Path
-    ) -> None:
-        tag = nbt.CompoundTag({"LastUpdate": 1, "SomeArray": bytearray(range(255))})
-        helpers.write_nbt_to_region_file(bare_region_file, 0, 1, tag, compression, external)
-        with region.RegionFile(bare_region_file) as r:
-            check_chunk_at_idx_matches(r, 0, tag)
-
     @pytest.mark.parametrize(
         ("timestamp", "last_update", "is_chunk"),
         [(1, 1, True), (2, 2, True), (2, 1, False), (2, 2, False)],
     )
-    def test__check_unchanged(
+    @pytest.mark.parametrize(
+        ("left_ext", "right_ext"),
+        [
+            (True, True),
+            (False, True),
+            (False, False),
+        ],
+    )
+    @pytest.mark.parametrize("compression", helpers.Compression)
+    def test__check_unchanged(  # noqa: PLR0913
         self,
         timestamp: int,
         last_update: int,
         is_chunk: bool,
+        left_ext: bool,
+        right_ext: bool,
+        compression: helpers.Compression,
         dummy_region_file: Path,
         other_dummy: Path,
     ) -> None:
-        expected = timestamp == 1 or last_update == 1 or is_chunk
+        expected = timestamp == 1 or ((left_ext == right_ext) and (last_update == 1 or is_chunk))
         helpers.write_nbt_to_region_file(
-            other_dummy, 0, timestamp, nbt.CompoundTag({"LastUpdate": nbt.LongTag(last_update)})
+            other_dummy,
+            0,
+            timestamp,
+            nbt.CompoundTag({"LastUpdate": nbt.LongTag(last_update)}),
+            compression,
+            right_ext,
         )
+        if left_ext:
+            helpers.write_nbt_to_region_file(dummy_region_file, 0, 1, external=True)
         with (
             region.RegionFile(dummy_region_file) as this,
             region.RegionFile(other_dummy) as other,
         ):
             assert expected == this._check_unchanged(
-                this._headers[0], other, other._headers[0], is_chunk
+                this._headers[0], other, other._headers[0], is_chunk, 0
             )
 
     def test__check_unchanged_different_length(
@@ -127,7 +125,7 @@ class TestRegionFile:
             region.RegionFile(dummy_region_file) as this,
             region.RegionFile(other_dummy) as other,
         ):
-            assert not this._check_unchanged(this._headers[0], other, other._headers[0], False)
+            assert not this._check_unchanged(this._headers[0], other, other._headers[0], False, 0)
 
     def test_density_defragment(self, dummy_region_file: Path) -> None:
         with region.RegionFile(dummy_region_file) as r:

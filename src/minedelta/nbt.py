@@ -247,6 +247,8 @@ else:
         ):
             left_bytes = left_f.read()
             right_bytes = right_f.read()
+        if len(left_bytes) != len(right_bytes):
+            return False
         return _rust_compare_nbt(left_bytes, right_bytes, exclude_last_update)
 
     compare_nbt = _rust_compare_nbt

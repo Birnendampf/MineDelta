@@ -9,11 +9,11 @@ import mmap
 import operator
 import struct
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Final, Literal, NamedTuple, Self
 
-from .nbt import compare_nbt
+from .nbt import compare_nbt, compare_nbt_files
 
 if TYPE_CHECKING:
     import io
@@ -113,6 +113,7 @@ class ChunkHeader:
     offset: int
     size: int
     mtime: int
+    external: bool = field(default=False, init=False, compare=False)
 
     @classmethod
     def load(cls, buf: "ReadableBuffer", offset: int) -> Self:
@@ -253,16 +254,20 @@ class RegionFile:
             # noinspection PyAttributeOutsideInit
             region_x, region_z = self._region_pos = int(region_x_str) * 32, int(region_z_str) * 32
         chunk_rel_z, chunk_rel_x = divmod(idx, 32)
-        chunk_x = chunk_rel_x + region_x * 32
-        chunk_z = chunk_rel_z + region_z * 32
-        return path.with_name(f"c.{chunk_x}.{chunk_z}.mcc")
+        return path.with_name(f"c.{chunk_rel_x + region_x}.{chunk_rel_z + region_z}.mcc")
 
     def _get_chunk_data(self, header: ChunkHeader) -> bytes:
+        return self._get_inner_chunk_data(*self._get_start_size_comp_type(header))
+
+    def _get_start_size_comp_type(self, header: ChunkHeader) -> tuple[int, int, int]:
         start = header.offset * SECTOR
         if header.not_created or header.unmodified:
             raise ChunkLoadingError("Chunk not created or unmodified")
         size, comp_type = self._chunk_heading_struct.unpack_from(self._mmap, start)
         start += 5  # actual chunk data starts here
+        return start, size, comp_type
+
+    def _get_inner_chunk_data(self, start: int, size: int, comp_type: int) -> bytes:
         try:
             decompressor = DECOMP_LUT[comp_type]
         except KeyError:
@@ -271,12 +276,35 @@ class RegionFile:
             return decompressor(view)
 
     def _check_unchanged(
-        self, this_header: ChunkHeader, other: Self, other_header: ChunkHeader, is_chunk: bool
+        self,
+        this_header: ChunkHeader,
+        other: Self,
+        other_header: ChunkHeader,
+        is_chunk: bool,
+        idx: int,
     ) -> bool:
         if this_header.mtime == other_header.mtime:
             return True
-        this_data = self._get_chunk_data(this_header)
-        other_data = other._get_chunk_data(other_header)
+        this_start, this_size, this_comp_type = self._get_start_size_comp_type(this_header)
+        other_start, other_size, other_comp_type = other._get_start_size_comp_type(other_header)
+        external = this_comp_type > 127
+        if external != (other_comp_type > 127):
+            # if only one of two is external, it means different size and therefor different content
+            # This might lead to false negatives when a chunk is right at the limit of being
+            # external and the order of nbt tags lead to different compression and consequentially
+            # different length
+            return False
+        this_header.external = external
+        if external:
+            return compare_nbt_files(
+                self.get_mcc(idx),
+                this_comp_type - 128,
+                other.get_mcc(idx),
+                other_comp_type - 128,
+                is_chunk,
+            )
+        this_data = self._get_inner_chunk_data(this_start, this_size, this_comp_type)
+        other_data = other._get_inner_chunk_data(other_start, other_size, other_comp_type)
         if len(this_data) != len(other_data):
             return False
         return compare_nbt(this_data, other_data, is_chunk)
@@ -319,8 +347,8 @@ class RegionFile:
         """
         prev_end = 2
         no_missing_chunks = True
-        for this_header, other_header in sorted(
-            zip(self._headers, other._headers, strict=True), key=operator.itemgetter(0)
+        for this_header, (idx, other_header) in sorted(
+            zip(self._headers, enumerate(other._headers), strict=True), key=operator.itemgetter(0)
         ):
             if this_header.unmodified:
                 continue
@@ -329,7 +357,7 @@ class RegionFile:
                     no_missing_chunks = False
                 continue
             if not (other_header.not_created or other_header.unmodified) and self._check_unchanged(
-                this_header, other, other_header, is_chunk
+                this_header, other, other_header, is_chunk, idx
             ):
                 this_header.unmodified = True
                 self._headers_changed = True
@@ -425,7 +453,7 @@ class RegionFile:
                 continue
             if this_header.offset != other_header.offset:
                 moved.append(idx)
-            if self._check_unchanged(this_header, other, other_header, is_chunk):
+            if self._check_unchanged(this_header, other, other_header, is_chunk, idx):
                 if this_header.mtime != other_header.mtime:
                     touched += 1
                 continue
