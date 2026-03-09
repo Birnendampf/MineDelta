@@ -206,7 +206,7 @@ class RegionFile:
             try:
                 self._mmap = mmap.mmap(self._file_obj.fileno(), 0, access=mmap.ACCESS_WRITE)
             except ValueError as e:
-                raise EmptyRegionError("Region is empty") from e
+                raise EmptyRegionError from e
             if not self._headers:
                 self.load_headers()
         except Exception:
