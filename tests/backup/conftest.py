@@ -41,6 +41,10 @@ def _world_1(tmp_path_factory: pytest.TempPathFactory) -> Path:
     helpers.write_nbt_to_region_file(
         region_0_0, 1, 1, rapidnbt.CompoundTag({"chunk": "something", "LastUpdate": 1})
     )
+    helpers.write_nbt_to_region_file(
+        region_0_0, 5, 1, rapidnbt.CompoundTag({"LastUpdate": 1}), external=True
+    )
+    helpers.write_nbt_to_region_file(region_0_0, 6, 1, rapidnbt.CompoundTag({"LastUpdate": 1}))
     region_1_0 = chunk_region_dir / "r.1.0.mca"
     helpers.generate_bare_region_file(region_1_0)
     helpers.write_nbt_to_region_file(region_1_0, 0, 1)
@@ -103,8 +107,15 @@ def _world_3(tmp_path_factory: pytest.TempPathFactory, _world_1: Path) -> Path:
     deep_ignored = world_dir / "DIM-1" / "data" / "DistantHorizons.sqlite"
     deep_ignored.parent.mkdir(parents=True)
     deep_ignored.write_text("Not a real DB lol")
-    helpers.write_nbt_to_region_file(chunk_region_dir / "r.0.0.mca", 2, 3)
+    region_0_0 = chunk_region_dir / "r.0.0.mca"
+    helpers.write_nbt_to_region_file(region_0_0, 2, 3)
     helpers.write_nbt_to_region_file(chunk_region_dir / "r.1.0.mca", 0, 3)
+    helpers.write_nbt_to_region_file(
+        region_0_0, 5, 3, rapidnbt.CompoundTag({"LastUpdate": 2}), external=True
+    )
+    helpers.write_nbt_to_region_file(
+        region_0_0, 6, 3, rapidnbt.CompoundTag({"LastUpdate": 1, "external": ""}), external=True
+    )
     helpers.generate_bare_region_file(chunk_region_dir / "r.0.1.mca")
     return world_dir
 
