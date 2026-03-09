@@ -256,9 +256,6 @@ class RegionFile:
         chunk_rel_z, chunk_rel_x = divmod(idx, 32)
         return path.with_name(f"c.{chunk_rel_x + region_x}.{chunk_rel_z + region_z}.mcc")
 
-    def _get_chunk_data(self, header: ChunkHeader) -> bytes:
-        return self._get_inner_chunk_data(*self._get_start_size_comp_type(header))
-
     def _get_start_size_comp_type(self, header: ChunkHeader) -> tuple[int, int, int]:
         start = header.offset * SECTOR
         if header.not_created or header.unmodified:
