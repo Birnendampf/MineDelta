@@ -51,6 +51,16 @@ del _cpu_count
 _DefaultExecutor = concurrent.futures.ThreadPoolExecutor
 
 
+def _get_executor(
+    executor: concurrent.futures.Executor | None,
+) -> contextlib.nullcontext[concurrent.futures.Executor] | concurrent.futures.Executor:
+    if executor:
+        return contextlib.nullcontext(executor)
+    if MAX_WORKERS == 1:
+        return DummyExecutor()
+    return _DefaultExecutor(max_workers=MAX_WORKERS)
+
+
 class BackupData(BackupInfo):
     not_present: set[str] = set()  # noqa: RUF012  # msgspec understands
 
@@ -105,32 +115,22 @@ def _backup_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
     return tarinfo
 
 
-def _get_executor(
-    executor: concurrent.futures.Executor | None,
-) -> contextlib.nullcontext[concurrent.futures.Executor] | concurrent.futures.Executor:
-    if executor:
-        return contextlib.nullcontext(executor)
-    if MAX_WORKERS == 1:
-        return DummyExecutor()
-    return _DefaultExecutor(max_workers=MAX_WORKERS)
-
-
 class DiffBackupManager(_MetaDataManager[BackupData]):
     """Manager to create backups that only store changed chunks.
 
-    The newest backup is essentially complete copy, every previous n-th backup stores the changes
-    needed to turn the (n-1)th backup into itself. Illustration:
+    The newest backup (at idx 0) is essentially complete copy, every previous n-th backup stores the
+    changes needed to turn the newer (n-1)th backup into itself. Illustration:
 
     ===  ===========  =================
-    idx  files        diff
+    idx  files        what is stored
     ===  ===========  =================
-    0    a0    c1 d2
+    0    a0    c1 d2  a0    c1 d2
     1       b0 c0 d1  -a b0 c1->0 d2->1
     2             d0     -b -c    d1->0
     ===  ===========  =================
 
-    Some methods in this module take an additional `executor` parameter. This allows a
-    ThreadPoolexecutor to be reused between calls. if not specified, a new one with the number of
+    Some methods in this class take an additional `executor` parameter. This allows a
+    ThreadPoolexecutor to be reused between calls. If not specified, a new one with the number of
     workers equal to the number of available cpu cores will be used
     """
 
@@ -299,13 +299,14 @@ def _filter_diff(
         common_dir, compare = compare_stack.pop()
         compare_stack.extend(compare.subdirs.items())
         for file in compare.left_only:
-            # documentation warns about this on Windows, but it's fine since Python 3.6 (PEP529)
             not_present.add(Path(compare.left, file).relative_to(src).as_posix())
         for file in compare.same_files:
             Path(compare.right, file).unlink()
         if common_dir not in MCA_FOLDERS:
             continue
         for file in compare.diff_files:
+            if file.endswith(".mcc"):
+                continue
             src_file = Path(compare.left, file)
             dest_file = Path(compare.right, file)
             if not src_file.stat().st_size:
@@ -326,7 +327,7 @@ def _filter_diff(
 
 
 def _collect_filter_tasks(tasks: list[concurrent.futures.Future[None]]) -> None:
-    """Await tasks and group exceptions, cancelling unfinished tasks if one occurs."""
+    """Await tasks and group exceptions, cancelling pending tasks if any occur."""
     done, not_done = concurrent.futures.wait(tasks, return_when=concurrent.futures.FIRST_EXCEPTION)
     if not not_done:
         return
