@@ -280,19 +280,18 @@ class RegionFile:
         is_chunk: bool,
         idx: int,
     ) -> bool:
+        this_start, this_size, this_comp_type = self._get_start_size_comp_type(this_header)
+        this_header.external = this_comp_type > 127
         if this_header.mtime == other_header.mtime:
             return True
-        this_start, this_size, this_comp_type = self._get_start_size_comp_type(this_header)
         other_start, other_size, other_comp_type = other._get_start_size_comp_type(other_header)
-        external = this_comp_type > 127
-        if external != (other_comp_type > 127):
+        if this_header.external != (other_comp_type > 127):
             # if only one of two is external, it means different size and therefor different content
             # This might lead to false negatives when a chunk is right at the limit of being
             # external and the order of nbt tags lead to different compression and consequentially
             # different length
             return False
-        this_header.external = external
-        if external:
+        if this_header.external:
             return compare_nbt_files(
                 self.get_mcc(idx),
                 this_comp_type - 128,
@@ -358,6 +357,8 @@ class RegionFile:
             ):
                 this_header.unmodified = True
                 self._headers_changed = True
+                if this_header.external:
+                    self.get_mcc(idx).unlink()
             else:  # defragment
                 prev_end = self._move_chunk_back(prev_end, this_header)
 
