@@ -29,14 +29,18 @@ def assert_matches_world(world: Path, reference: Path) -> None:
                     RegionFile(Path(compare.right, file)) as ref_region,
                     RegionFile(Path(compare.left, file)) as actual_region,
                 ):
-                    for ref_header, actual_header in zip(
-                        ref_region._headers, actual_region._headers, strict=True
+                    for idx, (ref_header, actual_header) in enumerate(
+                        zip(ref_region._headers, actual_region._headers, strict=True)
                     ):
                         assert ref_header.not_created == actual_header.not_created
                         assert not actual_header.unmodified
                         if not actual_header.not_created:
                             assert ref_region._check_unchanged(
-                                ref_header, actual_region, actual_header, common_dir == "region"
+                                ref_header,
+                                actual_region,
+                                actual_header,
+                                common_dir == "region",
+                                idx,
                             )
         assert not compare.left_only
         for file in right_only:
