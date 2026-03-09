@@ -148,13 +148,25 @@ class TestRegionFile:
 
 # noinspection PyTypeChecker
 class TestDiffOperations:
-    def test_identical(self, dummy_region_file: Path, other_dummy: Path) -> None:
+    @pytest.mark.parametrize(
+        "external",
+        [
+            pytest.param(
+                True, marks=pytest.mark.xfail(reason="orphaned .mcc files not yet deleted")
+            ),
+            False,
+        ],
+    )
+    def test_identical(self, dummy_region_file: Path, other_dummy: Path, external: bool) -> None:
+        helpers.write_nbt_to_region_file(dummy_region_file, 0, 1, external=external)
+        helpers.write_nbt_to_region_file(other_dummy, 0, 1, external=external)
         with (
             region.RegionFile(dummy_region_file) as this,
             region.RegionFile(other_dummy) as other,
         ):
             assert this.filter_diff_defragment(other)
             assert this._headers[0].unmodified
+            assert not this.get_mcc(0).exists()
             with pytest.raises(region.ChunkLoadingError):
                 this._get_chunk_data(this._headers[0])
             assert this.density() == 1
