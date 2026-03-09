@@ -44,7 +44,7 @@ def other_dummy(tmp_path: Path, dummy_region_file_factory: RegionFactory) -> Pat
 
 def check_chunk_at_idx_matches(r: region.RegionFile, idx: int, tag: nbt.CompoundTag) -> None:
     # noinspection PyProtectedMember
-    data = r._get_chunk_data(r._headers[idx])
+    data = r._get_inner_chunk_data(*r._get_start_size_comp_type(r._headers[idx]))
     assert nbt.nbtio.loads(data, nbt.NbtFileFormat.BIG_ENDIAN) == tag
 
 
@@ -168,7 +168,7 @@ class TestDiffOperations:
             assert this._headers[0].unmodified
             assert not this.get_mcc(0).exists()
             with pytest.raises(region.ChunkLoadingError):
-                this._get_chunk_data(this._headers[0])
+                this._get_inner_chunk_data(*this._get_start_size_comp_type(this._headers[0]))
             assert this.density() == 1
 
     @pytest.mark.parametrize("swap", [True, False])
