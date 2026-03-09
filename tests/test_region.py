@@ -138,6 +138,13 @@ class TestRegionFile:
             assert r.density() == 1
             check_chunk_at_idx_matches(r, 0, tag)
 
+    def test_invalid_compression(self, dummy_region_file: Path) -> None:
+        with open(dummy_region_file, "r+b") as f:
+            f.seek(8196)
+            f.write((127).to_bytes())
+        with region.RegionFile(dummy_region_file) as r, pytest.raises(region.ChunkLoadingError):
+            check_chunk_at_idx_matches(r, 0, nbt.CompoundTag())
+
     def test_overlapping_chunks(self, dummy_region_file: Path) -> None:
         helpers.write_nbt_to_region_file(dummy_region_file, 1, 1)
         with region.RegionFile(dummy_region_file) as r:
