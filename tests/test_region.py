@@ -148,15 +148,7 @@ class TestRegionFile:
 
 # noinspection PyTypeChecker
 class TestDiffOperations:
-    @pytest.mark.parametrize(
-        "external",
-        [
-            pytest.param(
-                True, marks=pytest.mark.xfail(reason="orphaned .mcc files not yet deleted")
-            ),
-            False,
-        ],
-    )
+    @pytest.mark.parametrize("external", [True, False])
     def test_identical(self, dummy_region_file: Path, other_dummy: Path, external: bool) -> None:
         helpers.write_nbt_to_region_file(dummy_region_file, 0, 1, external=external)
         helpers.write_nbt_to_region_file(other_dummy, 0, 1, external=external)
