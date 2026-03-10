@@ -9,13 +9,13 @@ import filecmp
 import os
 import shutil
 import sys
-import tarfile
 import tempfile
 from collections.abc import Callable, Container
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Self
+from typing import TYPE_CHECKING, Final, Literal, Self
 
 import msgspec
+from backports import zstd
 
 from minedelta._dummy_executor import DummyExecutor
 from minedelta.region import RegionFile
@@ -29,6 +29,21 @@ else:
 
 if TYPE_CHECKING:
     from _typeshed import StrPath, Unused
+
+
+try:
+    if sys.version_info >= (3, 14):  # pragma: no cover
+        import tarfile
+
+        # optional module. could be unavailable
+        from compression import zstd  # noqa: F401
+    else:
+        from backports.zstd import tarfile
+    _DEFAULT_COMPRESSION: Literal["zst", "gz"] = "zst"
+except ImportError:  # pragma: no cover
+    import tarfile  # type: ignore[no-redef]
+
+    _DEFAULT_COMPRESSION = "gz"
 
 __all__ = ["MAX_WORKERS", "DiffBackupManager"]
 
@@ -66,8 +81,8 @@ class BackupData(BackupInfo):
 
     @property
     def name(self) -> str:
-        """Return the name corresponding to this backup (id + ".tar.gz")."""
-        return self.id + ".tar.gz"
+        """Return the name corresponding to this backup (id + ".bak")."""
+        return self.id + ".bak"
 
 
 def _extract_backup(
@@ -102,7 +117,7 @@ def _extract_backup(
         custom_filter = tarfile.data_filter
 
     extracted = Path(temp_dir, backup_data.id)
-    with tarfile.open(backup_dir / backup_data.name, "r:gz") as tar:
+    with tarfile.open(backup_dir / backup_data.name, "r:*") as tar:
         tar.extractall(extracted, filter=custom_filter)  # noqa: S202
     return extracted
 
@@ -134,8 +149,18 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
     workers equal to the number of available cpu cores will be used
     """
 
-    __slots__ = ()
+    __slots__ = ("_backup_method",)
     _BackupDataDECODER = msgspec.msgpack.Decoder(list[BackupData])
+
+    @override
+    def __init__(
+        self,
+        save: "StrPath",
+        backup_dir: Path,
+        backup_method: Literal["gz", "zst"] = _DEFAULT_COMPRESSION,
+    ):
+        self._backup_method = backup_method
+        super().__init__(save, backup_dir)
 
     @override
     def create_backup(
@@ -155,7 +180,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         ):
             new_backup_file = Path(temp_dir, new_backup.name)
             # the tarfile is intentionally opened and closed here, not in a seperate thread.
-            with tarfile.open(new_backup_file, "x:gz") as new_tar:
+            with tarfile.open(new_backup_file, "x:" + self._backup_method) as new_tar:  # type: ignore[call-overload]
                 progress("compressing world")
                 backup_fut = ex.submit(new_tar.add, self._world, "", filter=_backup_filter)
                 if previous:
@@ -166,7 +191,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                     )
                     progress(f'recompressing "{previous.id}"')
                     new_previous = Path(temp_dir, previous.name)
-                    with tarfile.open(new_previous, "x:gz") as prev_tar:
+                    with tarfile.open(new_previous, "x:" + self._backup_method) as prev_tar:  # type: ignore[call-overload]
                         prev_tar.add(prev_world, "")
                 # ensure backup creation went well before overwriting previous
                 backup_fut.result()
@@ -247,7 +272,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 if Path(older, file).exists():
                     chosen_not_present.discard(file)
             progress(f'recompressing "{data_chosen.id}" as "{data_older.name}"')
-            with tarfile.open(older_archive, "w:gz") as tar:
+            with tarfile.open(older_archive, "w:" + self._backup_method) as tar:  # type: ignore[call-overload]
                 tar.add(chosen, "")
 
         if id_:
