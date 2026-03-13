@@ -174,7 +174,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 new_backup,
                 previous,
             ),
-            # create Temporary directory in backup dir to ensure replace succeeds
+            # create temporary directory in backup dir to ensure replace succeeds
             tempfile.TemporaryDirectory(dir=self._backup_dir) as temp_dir,
             _get_executor(executor) as ex,
         ):
@@ -184,15 +184,17 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 progress("compressing world")
                 backup_fut = ex.submit(new_tar.add, self._world, "", filter=_backup_filter)
                 if previous:
-                    prev_world = _extract_backup(self._backup_dir, temp_dir, previous)
-                    progress(f'turning "{previous.id}" into diff')
-                    not_present = _filter_diff(
-                        src=self._world, dest=prev_world, executor=ex, progress=progress
-                    )
-                    progress(f'recompressing "{previous.id}"')
-                    new_previous = Path(temp_dir, previous.name)
-                    with tarfile.open(new_previous, "x:" + self._backup_method) as prev_tar:  # type: ignore[call-overload]
-                        prev_tar.add(prev_world, "")
+                    # True temporary directory to reduce IO, see #39
+                    with tempfile.TemporaryDirectory() as temp_2:
+                        prev_world = _extract_backup(self._backup_dir, temp_2, previous)
+                        progress(f'turning "{previous.id}" into diff')
+                        not_present = _filter_diff(
+                            src=self._world, dest=prev_world, executor=ex, progress=progress
+                        )
+                        progress(f'recompressing "{previous.id}"')
+                        new_previous = Path(temp_dir, previous.name)
+                        with tarfile.open(new_previous, "x:" + self._backup_method) as prev_tar:  # type: ignore[call-overload]
+                            prev_tar.add(prev_world, "")
                 # ensure backup creation went well before overwriting previous
                 backup_fut.result()
             new_backup_file.replace(self._backup_dir / new_backup.name)
