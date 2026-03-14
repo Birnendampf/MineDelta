@@ -359,8 +359,13 @@ def _collect_filter_tasks(tasks: list[concurrent.futures.Future[None]]) -> None:
     if not not_done:
         return
     # an exception occured
+    failed_to_cancel = set()
     for fut in not_done:
-        fut.cancel()
+        if not fut.cancel():
+            failed_to_cancel.add(fut)
+    done |= concurrent.futures.wait(
+        failed_to_cancel, return_when=concurrent.futures.ALL_COMPLETED
+    ).done
     is_base = False
     exceptions = []
     for fut in done:
