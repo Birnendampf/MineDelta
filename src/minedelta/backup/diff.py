@@ -359,8 +359,13 @@ def _collect_filter_tasks(tasks: list[concurrent.futures.Future[None]]) -> None:
     if not not_done:
         return
     # an exception occured
+    failed_to_cancel = set()
     for fut in not_done:
-        fut.cancel()
+        if not fut.cancel():
+            failed_to_cancel.add(fut)
+    done |= concurrent.futures.wait(
+        failed_to_cancel, return_when=concurrent.futures.ALL_COMPLETED
+    ).done
     is_base = False
     exceptions = []
     for fut in done:
@@ -380,9 +385,9 @@ def _filter_region(
 ) -> None:
     with RegionFile(src_file) as new_region, RegionFile(dest_file) as old_region:
         unchanged = old_region.filter_diff_defragment(new_region, is_chunk)
-        if unchanged:
-            dest_file.unlink()
     progress(src_file)
+    if unchanged:
+        dest_file.unlink()
 
 
 # APPLYING

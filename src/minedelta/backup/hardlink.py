@@ -60,7 +60,7 @@ class HardlinkBackupManager(_MetaDataManager[BackupInfo]):
                     new_file = current_new / name
                     try:
                         shutil.copy2(file, new_file)
-                    except IsADirectoryError:
+                    except (IsADirectoryError, PermissionError):
                         shutil.copytree(file, new_file, ignore=copytree_backup_ignore)
                 for name in compare.same_files:
                     (current_new / name).hardlink_to(Path(compare.right, name))
