@@ -380,9 +380,9 @@ def _filter_region(
 ) -> None:
     with RegionFile(src_file) as new_region, RegionFile(dest_file) as old_region:
         unchanged = old_region.filter_diff_defragment(new_region, is_chunk)
-        if unchanged:
-            dest_file.unlink()
     progress(src_file)
+    if unchanged:
+        dest_file.unlink()
 
 
 # APPLYING
