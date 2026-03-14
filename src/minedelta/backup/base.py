@@ -216,7 +216,7 @@ class _MetaDataManager(BaseBackupManager[int], Generic[_BackupInfoT], metaclass=
             backups_data = []
             previous = None
         prev_ids = {data.id for data in backups_data}
-        id_ = timestamp.strftime("%Y-%m-%dT%H:%M:%S")
+        id_ = timestamp.strftime("%Y-%m-%d_%H-%M-%S")
         suffix = 0
         id_format = id_ + "_{}"
         while id_ in prev_ids:
