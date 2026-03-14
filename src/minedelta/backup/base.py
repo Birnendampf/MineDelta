@@ -140,7 +140,7 @@ class BaseBackupManager(Generic[_id_T], metaclass=abc.ABCMeta):
 def _delete_file_or_dir(path: Path) -> None:
     try:
         path.unlink()
-    except IsADirectoryError:
+    except (IsADirectoryError, PermissionError):
         shutil.rmtree(path)
     except FileNotFoundError:
         pass
