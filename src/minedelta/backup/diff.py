@@ -5,17 +5,17 @@ For more details, see `DiffBackupManager`.
 
 import concurrent.futures
 import contextlib
+import copy
 import filecmp
 import os
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable, Container
+from collections.abc import Callable, Container, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, Self
+from typing import TYPE_CHECKING, Final, Literal, Self, cast
 
 import msgspec
-from backports import zstd
 
 from minedelta._dummy_executor import DummyExecutor
 from minedelta.region import RegionFile
@@ -30,6 +30,7 @@ else:
 if TYPE_CHECKING:
     from _typeshed import StrPath, Unused
 
+# try to use zstandard compression if available
 
 try:
     if sys.version_info >= (3, 14):  # pragma: no cover
@@ -49,18 +50,19 @@ __all__ = ["MAX_WORKERS", "DiffBackupManager"]
 
 MCA_FOLDERS: Final = frozenset(("region", "entities", "poi"))
 
-_cpu_count: int | None = None
-with contextlib.suppress(AttributeError):
-    _cpu_count = os.process_cpu_count()  # type: ignore[attr-defined]
-if _cpu_count is None:  # pragma: no cover
+
+def __cpu_count() -> int | None:  # pragma: no cover
+    with contextlib.suppress(AttributeError):
+        return cast("int | None", os.process_cpu_count())  # type: ignore[attr-defined]
     # sys.version_info < 3.13
     with contextlib.suppress(AttributeError):
-        _cpu_count = len(os.sched_getaffinity(0))
-if _cpu_count is None:  # pragma: no cover
-    _cpu_count = os.cpu_count()
+        return len(os.sched_getaffinity(0))
+    # not UNIX
+    return os.cpu_count()
 
-MAX_WORKERS = _cpu_count or 1
-del _cpu_count
+
+MAX_WORKERS = __cpu_count() or 1
+del __cpu_count
 
 # InterpreterPool is not supported
 _DefaultExecutor = concurrent.futures.ThreadPoolExecutor
@@ -149,17 +151,28 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
     workers equal to the number of available cpu cores will be used
     """
 
-    __slots__ = ("_backup_method",)
+    __slots__ = ("_compression", "_tar_options")
     _BackupDataDECODER = msgspec.msgpack.Decoder(list[BackupData])
 
-    @override
     def __init__(
         self,
         save: "StrPath",
         backup_dir: Path,
-        backup_method: Literal["gz", "zst"] = _DEFAULT_COMPRESSION,
+        compression_alg: Literal["gz", "zst"] = _DEFAULT_COMPRESSION,
+        zstd_options: Mapping[int, int] | None = None,
     ):
-        self._backup_method = backup_method
+        """Create a new DiffBackupManager.
+
+        Args:
+            save: world to create backups for
+            backup_dir: where to store the backups
+            compression_alg: compression algorithm to use. defaults to 'zst' if available, 'gz'
+              otherwise
+            zstd_options: additional options to pass to zst during compression. only effective if
+              zst is being used
+        """
+        self._compression = compression_alg
+        self._tar_options = {"options": copy.copy(zstd_options)} if zstd_options else {}
         super().__init__(save, backup_dir)
 
     @override
@@ -180,22 +193,26 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         ):
             new_backup_file = Path(temp_dir, new_backup.name)
             # the tarfile is intentionally opened and closed here, not in a seperate thread.
-            with tarfile.open(new_backup_file, "x:" + self._backup_method) as new_tar:  # type: ignore[call-overload]
-                progress("compressing world")
+            with tarfile.open(
+                new_backup_file, "x:" + self._compression, **self._tar_options
+            ) as new_tar:  # type: ignore[call-overload]
                 backup_fut = ex.submit(new_tar.add, self._world, "", filter=_backup_filter)
                 if previous:
                     # True temporary directory to reduce IO, see #39
                     with tempfile.TemporaryDirectory() as temp_2:
-                        prev_world = _extract_backup(self._backup_dir, temp_2, previous)
                         progress(f'turning "{previous.id}" into diff')
+                        prev_world = _extract_backup(self._backup_dir, temp_2, previous)
                         not_present = _filter_diff(
                             src=self._world, dest=prev_world, executor=ex, progress=progress
                         )
                         progress(f'recompressing "{previous.id}"')
                         new_previous = Path(temp_dir, previous.name)
-                        with tarfile.open(new_previous, "x:" + self._backup_method) as prev_tar:  # type: ignore[call-overload]
+                        with tarfile.open(
+                            new_previous, "x:" + self._compression, **self._tar_options
+                        ) as prev_tar:  # type: ignore[call-overload]
                             prev_tar.add(prev_world, "")
                 # ensure backup creation went well before overwriting previous
+                progress("compressing world")
                 backup_fut.result()
             new_backup_file.replace(self._backup_dir / new_backup.name)
             if previous:
@@ -274,7 +291,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 if Path(older, file).exists():
                     chosen_not_present.discard(file)
             progress(f'recompressing "{data_chosen.id}" as "{data_older.name}"')
-            with tarfile.open(older_archive, "w:" + self._backup_method) as tar:  # type: ignore[call-overload]
+            with tarfile.open(older_archive, "w:" + self._compression) as tar:  # type: ignore[call-overload]
                 tar.add(chosen, "")
 
         if id_:
@@ -318,10 +335,6 @@ def _filter_diff(
     not_present = set()
     compare_stack = [("", compare)]
     filter_tasks = []
-    # filter region files
-    lazy_progress = (  # only compute relative path if necessary
-        _noop if progress is _noop else lambda path: progress(f"filtered {path.relative_to(src)}")
-    )
     while compare_stack:
         common_dir, compare = compare_stack.pop()
         compare_stack.extend(compare.subdirs.items())
@@ -343,12 +356,11 @@ def _filter_diff(
                 not_present.add(src_file.relative_to(src).as_posix())
                 continue
             filter_tasks.append(
-                executor.submit(
-                    _filter_region, src_file, dest_file, common_dir == "region", lazy_progress
-                )
+                executor.submit(_filter_region, src_file, dest_file, common_dir == "region")
             )
 
     _collect_filter_tasks(filter_tasks)
+    progress(f"filtered {len(filter_tasks)} regions")
 
     return not_present
 
@@ -380,12 +392,9 @@ def _collect_filter_tasks(tasks: list[concurrent.futures.Future[None]]) -> None:
     )
 
 
-def _filter_region(
-    src_file: Path, dest_file: Path, is_chunk: bool, progress: Callable[[Path], None]
-) -> None:
+def _filter_region(src_file: Path, dest_file: Path, is_chunk: bool) -> None:
     with RegionFile(src_file) as new_region, RegionFile(dest_file) as old_region:
         unchanged = old_region.filter_diff_defragment(new_region, is_chunk)
-    progress(src_file)
     if unchanged:
         dest_file.unlink()
 
