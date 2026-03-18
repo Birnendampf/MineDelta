@@ -3,7 +3,7 @@ from typing import NoReturn
 import pytest
 
 # noinspection PyProtectedMember
-from minedelta import _dummy_executor
+from minedelta import _thread_scope
 
 
 def some_func(arg: int, /, *, kwarg: int) -> int:
@@ -20,12 +20,12 @@ def raises() -> NoReturn:
 
 class TestDummyExecutor:
     def test_submit(self) -> None:
-        with _dummy_executor.DummyExecutor() as executor:
+        with _thread_scope.DummyExecutor() as executor:
             submit = executor.submit(some_func, 1, kwarg=2)
             assert submit.result() == 3
             with pytest.raises(SomeError):
                 executor.submit(raises)
 
     def test_map(self) -> None:
-        with _dummy_executor.DummyExecutor() as executor:
+        with _thread_scope.DummyExecutor() as executor:
             assert tuple(executor.map(sum, zip(range(3), range(3), strict=True))) == (0, 2, 4)
