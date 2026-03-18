@@ -13,11 +13,12 @@ import sys
 import tempfile
 from collections.abc import Callable, Container, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, Self, cast
+from typing import TYPE_CHECKING, Final, Literal, Self
 
 import msgspec
 
-from minedelta._dummy_executor import DummyExecutor
+from minedelta import _thread_scope
+from minedelta._thread_scope import ThreadScope
 from minedelta.region import RegionFile
 
 from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, _MetaDataManager, _noop
@@ -46,36 +47,14 @@ except ImportError:  # pragma: no cover
 
     _DEFAULT_COMPRESSION = "gz"
 
-__all__ = ["MAX_WORKERS", "DiffBackupManager"]
+__all__ = ["DiffBackupManager", "set_worker_thread_count"]
 
 MCA_FOLDERS: Final = frozenset(("region", "entities", "poi"))
 
 
-def __cpu_count() -> int | None:  # pragma: no cover
-    with contextlib.suppress(AttributeError):
-        return cast("int | None", os.process_cpu_count())  # type: ignore[attr-defined]
-    # sys.version_info < 3.13
-    with contextlib.suppress(AttributeError):
-        return len(os.sched_getaffinity(0))
-    # not UNIX
-    return os.cpu_count()
-
-
-MAX_WORKERS = __cpu_count() or 1
-del __cpu_count
-
-# InterpreterPool is not supported
-_DefaultExecutor = concurrent.futures.ThreadPoolExecutor
-
-
-def _get_executor(
-    executor: concurrent.futures.Executor | None,
-) -> contextlib.nullcontext[concurrent.futures.Executor] | concurrent.futures.Executor:
-    if executor:
-        return contextlib.nullcontext(executor)
-    if MAX_WORKERS == 1:
-        return DummyExecutor()
-    return _DefaultExecutor(max_workers=MAX_WORKERS)
+def set_worker_thread_count(num_workers: int) -> None:
+    """Set the worker thread count."""
+    _thread_scope.MAX_WORKERS = num_workers
 
 
 class BackupData(BackupInfo):
@@ -183,41 +162,39 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         executor: concurrent.futures.Executor | None = None,
     ) -> BackupInfo:
         with (
-            self._prepare_create_backup(description, progress, BackupData) as (
-                new_backup,
-                previous,
-            ),
+            self._prepare_create_backup(description, progress, BackupData) as (new_backup, prev),
             # create temporary directory in backup dir to ensure replace succeeds
             tempfile.TemporaryDirectory(dir=self._backup_dir) as temp_dir,
-            _get_executor(executor) as ex,
         ):
             new_backup_file = Path(temp_dir, new_backup.name)
             # the tarfile is intentionally opened and closed here, not in a seperate thread.
-            with tarfile.open(
-                new_backup_file, "x:" + self._compression, **self._tar_options
-            ) as new_tar:  # type: ignore[call-overload]
-                backup_fut = ex.submit(new_tar.add, self._world, "", filter=_backup_filter)
-                if previous:
+            with (
+                tarfile.open(
+                    new_backup_file, "x:" + self._compression, **self._tar_options
+                ) as new_tar,  # type: ignore[call-overload]
+                ThreadScope(executor) as scope,
+            ):
+                scope.submit(new_tar.add, self._world, "", filter=_backup_filter)
+                if prev:
                     # True temporary directory to reduce IO, see #39
                     with tempfile.TemporaryDirectory() as temp_2:
-                        progress(f'turning "{previous.id}" into diff')
-                        prev_world = _extract_backup(self._backup_dir, temp_2, previous)
+                        progress(f'turning "{prev.id}" into diff')
+                        prev_world = _extract_backup(self._backup_dir, temp_2, prev)
                         not_present = _filter_diff(
-                            src=self._world, dest=prev_world, executor=ex, progress=progress
+                            src=self._world, dest=prev_world, scope=scope, progress=progress
                         )
-                        progress(f'recompressing "{previous.id}"')
-                        new_previous = Path(temp_dir, previous.name)
+                        progress(f'recompressing "{prev.id}"')
+                        new_previous = Path(temp_dir, prev.name)
                         with tarfile.open(
                             new_previous, "x:" + self._compression, **self._tar_options
                         ) as prev_tar:  # type: ignore[call-overload]
                             prev_tar.add(prev_world, "")
-                # ensure backup creation went well before overwriting previous
+                # ensure backup creation went well before overwriting prev
                 progress("compressing world")
-                backup_fut.result()
             new_backup_file.replace(self._backup_dir / new_backup.name)
-            if previous:
-                previous.not_present = not_present
-                new_previous.replace(self._backup_dir / previous.name)
+            if prev:
+                prev.not_present = not_present
+                new_previous.replace(self._backup_dir / prev.name)
 
         return BackupInfo(new_backup.timestamp, new_backup.id, new_backup.desc)
 
@@ -231,11 +208,13 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         backups_data = self._load_backups_data_validate_idx(id_)
         progress(f'restoring backup "{backups_data[id_].id}"')
         backups_slice = backups_data[1 : id_ + 1]
-        with tempfile.TemporaryDirectory() as temp_dir, _get_executor(executor) as ex:
+        with tempfile.TemporaryDirectory() as temp_dir, ThreadScope(executor) as scope:
             tasks = []
             skip: frozenset[str] = frozenset()
             for backup in reversed(backups_slice):
-                tasks.append(ex.submit(_extract_backup, self._backup_dir, temp_dir, backup, skip))
+                tasks.append(
+                    scope.submit(_extract_backup, self._backup_dir, temp_dir, backup, skip)
+                )
                 skip |= backup.not_present
             newest_backup = _extract_backup(self._backup_dir, temp_dir, backups_data[0], skip)
             with _RegionFileCache() as region_file_cache:
@@ -271,8 +250,8 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         chosen_not_present = data_chosen.not_present.copy()
         progress(f'merging "{data_older.id}" into "{data_chosen.id}"')
         older_archive = self._backup_dir / data_older.name
-        with tempfile.TemporaryDirectory() as temp_dir, _get_executor(executor) as ex:
-            chosen_fut = ex.submit(
+        with tempfile.TemporaryDirectory() as temp_dir, ThreadScope(executor) as scope:
+            chosen_fut = scope.submit(
                 _extract_backup,
                 self._backup_dir,
                 temp_dir,
@@ -317,7 +296,7 @@ def _filter_diff(
     *,
     src: "StrPath",
     dest: "StrPath",
-    executor: concurrent.futures.Executor,
+    scope: concurrent.futures.Executor | ThreadScope | None,
     progress: Callable[[str], None] = _noop,
 ) -> set[str]:
     """Delete files and chunks from `dest` in common with `src`. `src` is not altered.
@@ -327,69 +306,40 @@ def _filter_diff(
     Args:
         src: directory to compare against
         dest: directory to perform changes in
-        executor: Executor to use for filtering
+        scope: Executor to use for filtering
         progress: Will be called with a string describing which anvil file is being filtered
     Returns: set of files found in `src` but not `dest`, relavtive to src
     """
     compare = filecmp.dircmp(src, dest, BACKUP_IGNORE)
     not_present = set()
     compare_stack = [("", compare)]
-    filter_tasks = []
-    while compare_stack:
-        common_dir, compare = compare_stack.pop()
-        compare_stack.extend(compare.subdirs.items())
-        for file in compare.left_only:
-            not_present.add(Path(compare.left, file).relative_to(src).as_posix())
-        for file in compare.same_files:
-            Path(compare.right, file).unlink()
-        if common_dir not in MCA_FOLDERS:
-            continue
-        for file in compare.diff_files:
-            if file.endswith(".mcc"):
+    filer_task_count = 0
+    with ThreadScope(scope) as scope:  # noqa: PLR1704
+        while compare_stack:
+            common_dir, compare = compare_stack.pop()
+            compare_stack.extend(compare.subdirs.items())
+            for file in compare.left_only:
+                not_present.add(Path(compare.left, file).relative_to(src).as_posix())
+            for file in compare.same_files:
+                Path(compare.right, file).unlink()
+            if common_dir not in MCA_FOLDERS:
                 continue
-            src_file = Path(compare.left, file)
-            dest_file = Path(compare.right, file)
-            if not src_file.stat().st_size:
-                continue
-            if not dest_file.stat().st_size:
-                dest_file.unlink()
-                not_present.add(src_file.relative_to(src).as_posix())
-                continue
-            filter_tasks.append(
-                executor.submit(_filter_region, src_file, dest_file, common_dir == "region")
-            )
-
-    _collect_filter_tasks(filter_tasks)
-    progress(f"filtered {len(filter_tasks)} regions")
+            for file in compare.diff_files:
+                if file.endswith(".mcc"):
+                    continue
+                src_file = Path(compare.left, file)
+                dest_file = Path(compare.right, file)
+                if not src_file.stat().st_size:
+                    continue
+                if not dest_file.stat().st_size:
+                    dest_file.unlink()
+                    not_present.add(src_file.relative_to(src).as_posix())
+                    continue
+                filer_task_count += 1
+                scope.submit(_filter_region, src_file, dest_file, common_dir == "region")
+    progress(f"filtered {filer_task_count} regions")
 
     return not_present
-
-
-def _collect_filter_tasks(tasks: list[concurrent.futures.Future[None]]) -> None:
-    """Await tasks and group exceptions, cancelling pending tasks if any occur."""
-    done, not_done = concurrent.futures.wait(tasks, return_when=concurrent.futures.FIRST_EXCEPTION)
-    if not not_done:
-        return
-    # an exception occured
-    failed_to_cancel = set()
-    for fut in not_done:
-        if not fut.cancel():
-            failed_to_cancel.add(fut)
-    done |= concurrent.futures.wait(
-        failed_to_cancel, return_when=concurrent.futures.ALL_COMPLETED
-    ).done
-    is_base = False
-    exceptions = []
-    for fut in done:
-        if not (exception := fut.exception()):
-            continue
-        if not isinstance(exception, Exception):
-            is_base = True
-        exceptions.append(exception)
-    # mypy does not get this kind of narrowing
-    raise (BaseExceptionGroup if is_base else ExceptionGroup)(  # type: ignore[type-var]
-        "Exceptions occured while filtering Regions", exceptions
-    )
 
 
 def _filter_region(src_file: Path, dest_file: Path, is_chunk: bool) -> None:
