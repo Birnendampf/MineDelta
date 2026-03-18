@@ -5,5 +5,5 @@ coverage:
         target: auto
 
 comment:
-  layout: " diff, files"
+  layout: "diff, files"
   behavior: default
