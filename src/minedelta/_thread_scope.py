@@ -1,14 +1,7 @@
+import concurrent.futures as cf
 import contextlib
 import os
 from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import (
-    ALL_COMPLETED,
-    FIRST_EXCEPTION,
-    Executor,
-    Future,
-    ThreadPoolExecutor,
-    wait,
-)
 from typing import TYPE_CHECKING, Any, ParamSpec, Self, TypeVar, cast
 
 if TYPE_CHECKING:
@@ -32,16 +25,16 @@ MAX_WORKERS = __cpu_count() or 1
 del __cpu_count
 
 # InterpreterPool is not supported
-_DefaultExecutor = ThreadPoolExecutor
+_DefaultExecutor = cf.ThreadPoolExecutor
 
 
-class DummyExecutor(Executor):
-    def submit(self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> Future[T]:
+class DummyExecutor(cf.Executor):
+    def submit(self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> cf.Future[T]:
         """Runs the function immediately rather than concurrently.
 
         If an exception occurs, it is raised immediately instead of being passed to the Future.
         """
-        future: Future[T] = Future()
+        future: cf.Future[T] = cf.Future()
         future.set_result(fn(*args, **kwargs))
         return future
 
@@ -52,41 +45,40 @@ class DummyExecutor(Executor):
 class ThreadScope:
     __slots__ = ("_owns_threadpool", "_scope_name", "_tasks", "_threadpool")
 
-    def __init__(self, parent: Executor | Self | None, scope_name: str = "") -> None:
+    def __init__(self, parent: cf.Executor | Self | None, scope_name: str = "") -> None:
         self._owns_threadpool = not parent
         if parent:
             self._threadpool = parent
         elif MAX_WORKERS <= 1:
             self._threadpool = DummyExecutor()
         else:
-            self._threadpool = _DefaultExecutor(
-                max_workers=MAX_WORKERS,
-                thread_name_prefix=f"{scope_name}_scope" if scope_name else "scope",
-            )
+            self._threadpool = _DefaultExecutor(MAX_WORKERS)
         if not isinstance(self._threadpool, ThreadScope):
             self._threadpool._inner_submit = self._threadpool.submit  # type: ignore[attr-defined]
-        self._tasks: set[Future[Any]] = set()
+        self._tasks: set[cf.Future[Any]] = set()
         self._scope_name = scope_name
 
     def __enter__(self) -> Self:
         return self
 
-    def _inner_submit(self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> Future[T]:
+    def _inner_submit(
+        self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
+    ) -> cf.Future[T]:
         return self._threadpool._inner_submit(fn, *args, **kwargs)  # type: ignore[union-attr]
 
-    def submit(self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> Future[T]:
+    def submit(self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> cf.Future[T]:
         fut = self._inner_submit(fn, *args, **kwargs)
         self._tasks.add(fut)
         return fut
 
-    def mark_handled(self, future: Future[Any]) -> None:
+    def mark_handled(self, future: cf.Future[Any]) -> None:
         if not future.done():
             raise ValueError("Cannot mark unfinished future as handled")
         self._tasks.remove(future)
 
     def __exit__(self, exc_type: "Unused", exc_val: BaseException | None, exc_tb: "Unused") -> None:
         if not exc_val:
-            _, not_done = wait(self._tasks, return_when=FIRST_EXCEPTION)
+            _, not_done = cf.wait(self._tasks, return_when=cf.FIRST_EXCEPTION)
         else:
             not_done = self._tasks.copy()
         # an exception occurred
@@ -94,11 +86,11 @@ class ThreadScope:
             if fut.cancel():
                 self._tasks.remove(fut)
         if self._owns_threadpool:
-            assert isinstance(self._threadpool, Executor)  # noqa: S101
+            assert isinstance(self._threadpool, cf.Executor)  # noqa: S101
             # shutdown already waits, no need to wait after.
             self._threadpool.shutdown()
         else:
-            wait(self._tasks, return_when=ALL_COMPLETED)
+            cf.wait(self._tasks, return_when=cf.ALL_COMPLETED)
         exceptions = {fut.exception() for fut in self._tasks}
         exceptions.add(exc_val)
         exceptions.discard(None)

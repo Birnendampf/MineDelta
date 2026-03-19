@@ -168,13 +168,8 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         ):
             new_backup_file = Path(temp_dir, new_backup.name)
             # the tarfile is intentionally opened and closed here, not in a seperate thread.
-            with (
-                tarfile.open(
-                    new_backup_file, "x:" + self._compression, **self._tar_options
-                ) as new_tar,  # type: ignore[call-overload]
-                ThreadScope(executor, "create backup") as scope,
-            ):
-                scope.submit(new_tar.add, self._world, "", filter=_backup_filter)
+            with ThreadScope(executor, "create backup") as scope:
+                scope.submit(self._compress_world, new_backup_file)
                 if prev:
                     # True temporary directory to reduce IO, see #39
                     with tempfile.TemporaryDirectory() as temp_2:
@@ -197,6 +192,10 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 new_previous.replace(self._backup_dir / prev.name)
 
         return BackupInfo(new_backup.timestamp, new_backup.id, new_backup.desc)
+
+    def _compress_world(self, dest: Path) -> None:
+        with tarfile.open(dest, "x:" + self._compression, **self._tar_options) as new_tar:  # type: ignore[call-overload]
+            new_tar.add(self._world, "", filter=_backup_filter)
 
     @override
     def restore_backup(
