@@ -124,7 +124,7 @@ mypy-init-return = true
 
 [tool.mypy]
 strict = true
-packages = ["minedelta", "tests", "nbtcompare"]
+files = "."
 
 [[tool.mypy.overrides]]
 module = ["lz4.*"]
