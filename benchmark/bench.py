@@ -11,27 +11,22 @@
 """Script to benchmark MineDelta."""
 
 import argparse
+import dataclasses
+import gc
 import logging
+import os
 import shutil
-import sys
+import tempfile
+import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from minedelta import backup
-
-# noinspection PyProtectedMember
-from minedelta._thread_scope import MAX_WORKERS
-from minedelta.backup import diff
-
-if sys.version_info >= (3, 14):
-    import tarfile
-else:
-    from backports.zstd import tarfile
 
 if TYPE_CHECKING:
     from types import TracebackType
 
-    from _typeshed import Unused
+    from _typeshed import StrPath, Unused
 
 logger = logging.getLogger("bench")
 
@@ -107,27 +102,80 @@ def _capture(args: argparse.Namespace) -> None:
         shutil.rmtree(capture_directory, onerror=_rmtree_on_error)
         existing_count = 0
     capture_directory.mkdir(parents=True, exist_ok=True)
-    new_capture = capture_directory / f"{existing_count}.bak"
-    # noinspection PyProtectedMember
-    with tarfile.open(  # type: ignore[call-overload]
-        new_capture,
-        "x:" + diff._DEFAULT_COMPRESSION,
-        options={400: MAX_WORKERS},
-        debug=max(args.verbose - 1, 0),
-    ) as tar:
-        _patch_tar_logger(tar, logger)
-        logger.info(f"Compressing {world}...")
-        tar.add(world, ".")
-    logger.debug(f"Finished ({new_capture.stat().st_size // 2**20}MiB)")
+    new_capture = capture_directory / f"{existing_count}"
+    logger.info("Creating snapshot...")
+    shutil.copytree(world, new_capture)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(f"Finished ({_du(new_capture) // 2**20}MiB)")
+
+
+@dataclasses.dataclass(slots=True)
+class _BenchmarkResult:
+    create_times: list[int] = dataclasses.field(default_factory=list)
+    backup_size: int = 0
+    restore_times: list[int] = dataclasses.field(default_factory=list)
+    delete_times: list[int] = dataclasses.field(default_factory=list)
 
 
 def _run(args: argparse.Namespace) -> None:
+    capture_dir: Path = args.capture_directory.expanduser()
     actions: set[str] = set(args.action or ("create", "restore", "delete"))
-    managers = set(
+    managers: set[type[backup.BaseBackupManager[Any]]] = set(
         args.manager
         or (backup.HardlinkBackupManager, backup.GitBackupManager, backup.DiffBackupManager)
     )
-    print(args, f"{actions=}, {managers=}")
+    results = {
+        manager.__name__: _benchmark_manager(manager, actions, capture_dir) for manager in managers
+    }
+    for manager, result in results.items():
+        print(manager)
+        print(f"\taverage: {sum(result.create_times) / len(result.create_times) / 10**9:.3f}s")
+        print(f"\tsize: {result.backup_size / 2**20:.0f}MiB")
+
+
+def _benchmark_manager(
+    manager_type: type[backup.BaseBackupManager[Any]], _actions: set[str], capture_dir: Path
+) -> _BenchmarkResult:
+    result = _BenchmarkResult()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger.info(f"Benchmarking {manager_type.__name__}")
+        world = Path(tmpdir, "world")
+        world.mkdir()
+        backup_dir = Path(tmpdir, "backup")
+        manager = manager_type(world, backup_dir)
+        gc.disable()
+        try:
+            create_times = _benchmark_creation(manager, capture_dir)
+            if "create" in _actions:
+                result.create_times = create_times
+                # noinspection PyProtectedMember
+                result.backup_size = _du(manager._backup_dir)
+            gc.collect()
+        finally:
+            gc.enable()
+    return result
+
+
+# noinspection PyProtectedMember
+def _benchmark_creation(manager: backup.BaseBackupManager[Any], capture_dir: Path) -> list[int]:
+    create_times = []
+    orig_world = manager._world
+    progress_func = logger.debug if logger.isEnabledFor(logging.DEBUG) else backup.base._noop
+    for capture in sorted(capture_dir.iterdir(), key=lambda p: int(p.stem)):
+        logger.info(f"creating snapshot {capture.name}")
+        manager._world = capture
+        manager.prepare()
+        try:
+            start = time.perf_counter_ns()
+            manager.create_backup(capture.name, progress_func)
+            end = time.perf_counter_ns()
+            create_times.append(end - start)
+        finally:
+            if isinstance(manager, backup.GitBackupManager):
+                (capture / ".git").unlink()
+    manager._world = orig_world
+    manager.prepare()
+    return create_times
 
 
 def _set_verbosity(args: argparse.Namespace) -> None:
@@ -138,16 +186,7 @@ def _set_verbosity(args: argparse.Namespace) -> None:
     else:
         level = logging.INFO
     logging.basicConfig(level=level)
-
-
-def _patch_tar_logger(tar: tarfile.TarFile, logger_: logging.Logger) -> None:
-    lg = logger_.getChild("tar")
-
-    def new_dbg(level: int, msg: str) -> None:
-        if level <= (tar.debug or 0):
-            lg.debug(msg)
-
-    tar._dbg = new_dbg  # type: ignore[attr-defined]
+    logging.getLogger("dulwich").setLevel(logging.INFO)
 
 
 def _rmtree_on_error(
@@ -156,6 +195,27 @@ def _rmtree_on_error(
     exc_info: tuple[type[BaseException], BaseException, "TracebackType"],
 ) -> None:
     logger.warning(f"failed to remove {path}", exc_info=exc_info)
+
+
+def _du(path: Path) -> int:
+    """Similar to the du command.
+
+    Hardlinks are deduplicated, directories' size on disk is counted (not 0),
+    otherwise apparent size is used
+    """
+    seen_inodes = set()
+    total_size: int = 0
+    scan_stack: list[StrPath] = [path]
+    while scan_stack:
+        with os.scandir(scan_stack.pop()) as it:
+            for entry in it:
+                if entry.inode() in seen_inodes:
+                    continue
+                seen_inodes.add(entry.inode())
+                total_size += entry.stat(follow_symlinks=False).st_size
+                if entry.is_dir(follow_symlinks=False):
+                    scan_stack.append(entry)
+    return total_size
 
 
 if __name__ == "__main__":
