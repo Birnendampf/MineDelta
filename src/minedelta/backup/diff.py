@@ -172,7 +172,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 tarfile.open(
                     new_backup_file, "x:" + self._compression, **self._tar_options
                 ) as new_tar,  # type: ignore[call-overload]
-                ThreadScope(executor) as scope,
+                ThreadScope(executor, "create backup") as scope,
             ):
                 scope.submit(new_tar.add, self._world, "", filter=_backup_filter)
                 if prev:
@@ -208,7 +208,10 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         backups_data = self._load_backups_data_validate_idx(id_)
         progress(f'restoring backup "{backups_data[id_].id}"')
         backups_slice = backups_data[1 : id_ + 1]
-        with tempfile.TemporaryDirectory() as temp_dir, ThreadScope(executor) as scope:
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            ThreadScope(executor, "restore backup") as scope,
+        ):
             tasks = []
             skip: frozenset[str] = frozenset()
             for backup in reversed(backups_slice):
@@ -250,7 +253,10 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         chosen_not_present = data_chosen.not_present.copy()
         progress(f'merging "{data_older.id}" into "{data_chosen.id}"')
         older_archive = self._backup_dir / data_older.name
-        with tempfile.TemporaryDirectory() as temp_dir, ThreadScope(executor) as scope:
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            ThreadScope(executor, "delete backup") as scope,
+        ):
             chosen_fut = scope.submit(
                 _extract_backup,
                 self._backup_dir,
@@ -314,7 +320,7 @@ def _filter_diff(
     not_present = set()
     compare_stack = [("", compare)]
     filer_task_count = 0
-    with ThreadScope(scope) as scope:  # noqa: PLR1704
+    with ThreadScope(scope, "filter_diff") as scope:  # noqa: PLR1704
         while compare_stack:
             common_dir, compare = compare_stack.pop()
             compare_stack.extend(compare.subdirs.items())

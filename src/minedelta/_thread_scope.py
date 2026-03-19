@@ -50,19 +50,23 @@ class DummyExecutor(Executor):
 
 
 class ThreadScope:
-    __slots__ = ("_owns_threadpool", "_tasks", "_threadpool")
+    __slots__ = ("_owns_threadpool", "_scope_name", "_tasks", "_threadpool")
 
-    def __init__(self, parent: Executor | Self | None) -> None:
+    def __init__(self, parent: Executor | Self | None, scope_name: str = "") -> None:
         self._owns_threadpool = not parent
         if parent:
             self._threadpool = parent
         elif MAX_WORKERS <= 1:
             self._threadpool = DummyExecutor()
         else:
-            self._threadpool = _DefaultExecutor(max_workers=MAX_WORKERS)
+            self._threadpool = _DefaultExecutor(
+                max_workers=MAX_WORKERS,
+                thread_name_prefix=f"{scope_name}_scope" if scope_name else "scope",
+            )
         if not isinstance(self._threadpool, ThreadScope):
             self._threadpool._inner_submit = self._threadpool.submit  # type: ignore[attr-defined]
         self._tasks: set[Future[Any]] = set()
+        self._scope_name = scope_name
 
     def __enter__(self) -> Self:
         return self
@@ -100,7 +104,10 @@ class ThreadScope:
         exceptions.discard(None)
 
         if exceptions:
+            error_msg = "Exceptions occurred in scope"
+            if self._scope_name:
+                error_msg += f' "{self._scope_name}"'
             # noinspection PyUnnecessaryCast
             raise BaseExceptionGroup(
-                "Exceptions occurred in scope", tuple(cast("set[BaseException]", exceptions))
+                error_msg, tuple(cast("set[BaseException]", exceptions))
             ) from None
