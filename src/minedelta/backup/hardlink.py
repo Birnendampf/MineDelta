@@ -26,7 +26,7 @@ def copytree_backup_ignore(_: str, names: list[str]) -> frozenset[str]:
 
 
 class HardlinkBackupManager(_MetaDataManager[BackupInfo]):
-    """Create backups by copying the world and hardlinking duplicate files to previous backups."""
+    """Create backups by copying the world and hardlinking unchanged files to previous backups."""
 
     __slots__ = ()
     _BackupDataDECODER = msgspec.msgpack.Decoder(list[BackupInfo])
