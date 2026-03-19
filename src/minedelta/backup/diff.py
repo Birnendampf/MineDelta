@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Final, Literal, Self
 
 import msgspec
 
-from minedelta import _thread_scope
 from minedelta._thread_scope import ThreadScope
 from minedelta.region import RegionFile
 
@@ -47,14 +46,9 @@ except ImportError:  # pragma: no cover
 
     _DEFAULT_COMPRESSION = "gz"
 
-__all__ = ["DiffBackupManager", "set_worker_thread_count"]
+__all__ = ["DiffBackupManager"]
 
 MCA_FOLDERS: Final = frozenset(("region", "entities", "poi"))
-
-
-def set_worker_thread_count(num_workers: int) -> None:
-    """Set the worker thread count."""
-    _thread_scope.MAX_WORKERS = num_workers
 
 
 class BackupData(BackupInfo):
