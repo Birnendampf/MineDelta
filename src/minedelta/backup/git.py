@@ -77,14 +77,17 @@ class GitBackupManager(BaseBackupManager[str]):
     def _gc_progress(progress: Callable[[str], None]) -> Callable[[str], None]:
         @wraps(progress)
         def new_progress(s: str) -> None:
+            if isinstance(s, bytes):
+                s = s.decode()
             if s[:15] == "Checking object":
                 return
-            progress(s)
+            progress("[gc] " + s)
 
         return progress if progress is _noop else new_progress
 
     @override
     def prepare(self) -> None:
+        super().prepare()
         world = Path(self._world)
         world_git = world / ".git"
         r = self._check_repo(self._world, False)
@@ -130,9 +133,15 @@ class GitBackupManager(BaseBackupManager[str]):
         self, description: str | None = None, progress: Callable[[str], None] = _noop
     ) -> BackupInfo:
         with dw.repo.Repo(self._world) as r:
-            dw.porcelain.add(r)
-            progress("creating commit")
-            commit_id = r.get_worktree().commit((description or "Automated Backup").encode())
+            r._autogc_disabled = True  # type: ignore[attr-defined]
+            try:
+                progress("updating index")
+                dw.porcelain.add(r)
+                progress("creating commit")
+                commit_id = r.get_worktree().commit((description or "Automated Backup").encode())
+            finally:
+                r._autogc_disabled = False  # type: ignore[attr-defined]
+            dw.gc.maybe_auto_gc(r, progress=self._gc_progress(progress))
             return self._commit_to_backup_info(cast("dw.objects.Commit", r[commit_id]))
 
     @override
