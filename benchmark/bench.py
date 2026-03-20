@@ -106,7 +106,7 @@ def _capture(args: argparse.Namespace) -> None:
     logger.info("Creating snapshot...")
     shutil.copytree(world, new_capture)
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Finished ({_du(new_capture) // 2**20}MiB)")
+        logger.debug(f"Finished ({du(new_capture) // 2**20}MiB)")
 
 
 @dataclasses.dataclass(slots=True)
@@ -149,7 +149,7 @@ def _benchmark_manager(
             if "create" in _actions:
                 result.create_times = create_times
                 # noinspection PyProtectedMember
-                result.backup_size = _du(manager._backup_dir)
+                result.backup_size = du(manager._backup_dir)
             gc.collect()
         finally:
             gc.enable()
@@ -181,12 +181,13 @@ def _benchmark_creation(manager: backup.BaseBackupManager[Any], capture_dir: Pat
 def _set_verbosity(args: argparse.Namespace) -> None:
     if args.quiet:
         level = logging.WARNING
-    elif args.verbose:
+    elif args.verbose > 1:
         level = logging.DEBUG
     else:
         level = logging.INFO
     logging.basicConfig(level=level)
-    logging.getLogger("dulwich").setLevel(logging.INFO)
+    if args.verbose == 1:
+        logger.setLevel(level=logging.DEBUG)
 
 
 def _rmtree_on_error(
@@ -197,7 +198,7 @@ def _rmtree_on_error(
     logger.warning(f"failed to remove {path}", exc_info=exc_info)
 
 
-def _du(path: Path) -> int:
+def du(path: "StrPath") -> int:
     """Similar to the du command.
 
     Hardlinks are deduplicated, directories' size on disk is counted (not 0),
@@ -209,12 +210,15 @@ def _du(path: Path) -> int:
     while scan_stack:
         with os.scandir(scan_stack.pop()) as it:
             for entry in it:
-                if entry.inode() in seen_inodes:
-                    continue
-                seen_inodes.add(entry.inode())
-                total_size += entry.stat(follow_symlinks=False).st_size
-                if entry.is_dir(follow_symlinks=False):
+                is_dir = entry.is_dir(follow_symlinks=False)
+                if is_dir:
                     scan_stack.append(entry)
+                elif entry.inode() in seen_inodes:
+                    continue
+                stat = entry.stat(follow_symlinks=False)
+                if not (is_dir or stat.st_nlink == 1):
+                    seen_inodes.add(entry.inode())
+                total_size += stat.st_size
     return total_size
 
 

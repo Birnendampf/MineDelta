@@ -402,7 +402,6 @@ def _filter_diff(
                 filer_task_count += 1
                 scope.submit(_filter_region, src_file, dest_file, common_dir == "region")
     progress(f"filtered {filer_task_count} regions")
-
     return not_present
 
 
