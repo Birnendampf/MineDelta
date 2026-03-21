@@ -34,7 +34,7 @@ logger = logging.getLogger("bench")
 def main() -> None:  # noqa: D103
     parser = argparse.ArgumentParser(description="Benchmark minedelta")
     parser.add_argument(
-        "-c",
+        "-C",
         "--capture-directory",
         type=Path,
         default=Path(__file__).parent / ".captures",
@@ -73,13 +73,14 @@ def main() -> None:  # noqa: D103
     manager_group = run.add_argument_group(
         "managers", "which manager to benchmark. Defaults to all if not specified."
     )
-    for manager in (
-        backup.HardlinkBackupManager,
-        backup.GitBackupManager,
-        backup.DiffBackupManager,
+    for manager, short_flag in (
+        (backup.HardlinkBackupManager, "--hl"),
+        (backup.GitBackupManager, "--gt"),
+        (backup.DiffBackupManager, "--df"),
     ):
         manager_group.add_argument(
             f"--{manager.__name__[:-13].lower()}",
+            short_flag,
             action="append_const",
             const=manager,
             dest="manager",
@@ -205,8 +206,8 @@ def du(path: "StrPath") -> int:
     otherwise apparent size is used
     """
     seen_inodes = set()
-    total_size: int = 0
-    scan_stack: list[StrPath] = [path]
+    total_size = 0
+    scan_stack = [path]
     while scan_stack:
         with os.scandir(scan_stack.pop()) as it:
             for entry in it:
