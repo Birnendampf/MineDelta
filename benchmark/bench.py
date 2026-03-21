@@ -120,34 +120,42 @@ class _BenchmarkResult:
 def _run(args: argparse.Namespace) -> None:
     capture_dir: Path = args.capture_directory.expanduser()
     actions: set[str] = set(args.action or ("create", "restore", "delete"))
-    # TODO: implement delete
-    actions.discard("delete")
     managers: set[type[backup.BaseBackupManager[Any]]] = set(
         args.manager
         or (backup.HardlinkBackupManager, backup.GitBackupManager, backup.DiffBackupManager)
     )
+    captures = sorted(capture_dir.iterdir(), key=lambda p: int(p.stem))
+    if not captures:
+        raise FileNotFoundError(f"No captures found in {capture_dir}")
     results = {
-        manager.__name__: _benchmark_manager(manager, actions, capture_dir, bool(args.verbose))
+        manager.__name__: _benchmark_manager(manager, actions, captures, bool(args.verbose))
         for manager in managers
     }
+    raw_size = sum(du(capture) for capture in captures)
     for manager, result in results.items():
         print(manager)
         for action in actions:
             times = getattr(result, action + "_times")
-            print(f"\t{action}: {sum(times) / len(times) / 10**9:.3f}s")
-        print(f"\tsize: {result.backup_size / 2**20:.0f}MiB")
+            print(
+                f"  {action}: {sum(times) / len(times) / 10**9:.3f}s",
+                "(raw):",
+                "[" + ", ".join(f"{t:_}" for t in times) + "]",
+            )
+        print(
+            f"  size: {result.backup_size / 2**20:.0f}MiB. ({1 - (result.backup_size / raw_size):.1%} reduction)"
+        )
 
 
 def _benchmark_manager(
     manager_type: type[backup.BaseBackupManager[Any]],
     _actions: set[str],
-    capture_dir: Path,
+    captures: list[Path],
     verbose: bool,
 ) -> _BenchmarkResult:
     result = _BenchmarkResult()
     manager_name = manager_type.__name__
     # noinspection PyProtectedMember
-    progress = _ProgressAdapter(manager_name).debug if verbose else backup.base._noop
+    progress = _ProgressAdapter(manager_name[:-13]).debug if verbose else backup.base._noop
     if issubclass(manager_type, backup.GitBackupManager):
         logger.debug("Disabling git auto gc")
         os.environ["GIT_AUTO_GC"] = "0"
@@ -160,7 +168,7 @@ def _benchmark_manager(
         manager.prepare()
         gc.disable()
         try:
-            create_times = _benchmark_creation(manager, capture_dir, progress)
+            create_times = _benchmark_create(manager, captures, progress)
             if "create" in _actions:
                 result.create_times = create_times
             # noinspection PyProtectedMember
@@ -170,18 +178,24 @@ def _benchmark_manager(
             if "restore" in _actions:
                 result.restore_times = _benchmark_restore(manager, progress)
             gc.collect()
+
+            if "delete" in _actions:
+                result.delete_times = _benchmark_delete(manager, progress)
+            gc.collect()
         finally:
             gc.enable()
+        if verbose:
+            logger.debug(f"Cleaning up (removing {du(tmpdir) // 2**20}MiB)")
     return result
 
 
 # noinspection PyProtectedMember
-def _benchmark_creation(
-    manager: backup.BaseBackupManager[Any], capture_dir: Path, progress: Callable[[str], Any]
+def _benchmark_create(
+    manager: backup.BaseBackupManager[Any], captures: list[Path], progress: Callable[[str], Any]
 ) -> list[int]:
     create_times = []
     orig_world = manager._world
-    for capture in sorted(capture_dir.iterdir(), key=lambda p: int(p.stem)):
+    for capture in captures:
         logger.info(f"Creating snapshot {capture.name}")
         manager._world = capture
         manager.prepare()
@@ -202,7 +216,9 @@ def _benchmark_restore(
 ) -> list[int]:
     restore_times = []
     backups = manager.list_backups()
-    for idx, info in enumerate(backups):
+    backup_enumeration = list(enumerate(backups))
+    backup_enumeration.reverse()
+    for idx, info in backup_enumeration:
         logger.info(f"Restoring snapshot {info.desc}")
         id_ = info.id if manager.index_by == "id" else idx
 
@@ -211,6 +227,46 @@ def _benchmark_restore(
         end = time.perf_counter_ns()
         restore_times.append(end - start)
     return restore_times
+
+
+# noinspection PyProtectedMember
+def _benchmark_delete(
+    manager: backup.BaseBackupManager[Any], progress: Callable[[str], Any]
+) -> list[int]:
+    backups = manager.list_backups()
+    oldest = backups[-1].id if manager.index_by == "id" else (len(backups) - 1)
+    delete_times = []
+    if len(backups) > 1:
+        need_state_copy = len(backups) <= 2 and isinstance(manager, backup.DiffBackupManager)
+        backup_dir = manager._backup_dir
+        new_dir = backup_dir.parent / "old_backups"
+
+        if need_state_copy:
+            # deleting the newest is only ever affected by the second-newest backup
+            # so if there are 3 backups, there will still be 2 when deleting newest,
+            # avoiding any fast paths
+            logger.debug("Copying manager state")
+            shutil.copytree(backup_dir, new_dir)
+        logger.info("Deleting oldest")
+        start = time.perf_counter_ns()
+        manager.delete_backup(oldest, progress)
+        end = time.perf_counter_ns()
+        delete_times.append(end - start)
+        if need_state_copy:
+            logger.debug("Restoring manager state")
+            shutil.rmtree(backup_dir)
+            shutil.move(new_dir, backup_dir)
+        backups = manager.list_backups()
+        newest = backups[0].id if manager.index_by == "id" else 0
+        logger.info("Deleting newest")
+    else:
+        logger.info("Deleting backup")
+        newest = oldest
+    start = time.perf_counter_ns()
+    manager.delete_backup(newest, progress)
+    end = time.perf_counter_ns()
+    delete_times.append(end - start)
+    return delete_times
 
 
 def _configure_logging(args: argparse.Namespace) -> None:
@@ -229,7 +285,7 @@ def _configure_logging(args: argparse.Namespace) -> None:
         logger.setLevel(level=logging.DEBUG)
 
 
-class _ProgressAdapter(logging.LoggerAdapter):
+class _ProgressAdapter(logging.LoggerAdapter[logging.Logger]):
     def __init__(self, manager_name: str):
         self.manager_name = manager_name
         super().__init__(logger)
