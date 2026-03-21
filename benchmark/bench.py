@@ -120,16 +120,21 @@ class _BenchmarkResult:
 def _run(args: argparse.Namespace) -> None:
     capture_dir: Path = args.capture_directory.expanduser()
     actions: set[str] = set(args.action or ("create", "restore", "delete"))
+    # TODO: implement delete
+    actions.discard("delete")
     managers: set[type[backup.BaseBackupManager[Any]]] = set(
         args.manager
         or (backup.HardlinkBackupManager, backup.GitBackupManager, backup.DiffBackupManager)
     )
     results = {
-        manager.__name__: _benchmark_manager(manager, actions, capture_dir) for manager in managers
+        manager.__name__: _benchmark_manager(manager, actions, capture_dir, bool(args.verbose))
+        for manager in managers
     }
     for manager, result in results.items():
         print(manager)
-        print(f"\taverage: {sum(result.create_times) / len(result.create_times) / 10**9:.3f}s")
+        for action in actions:
+            times = getattr(result, action + "_times")
+            print(f"\t{action}: {sum(times) / len(times) / 10**9:.3f}s")
         print(f"\tsize: {result.backup_size / 2**20:.0f}MiB")
 
 
@@ -161,6 +166,10 @@ def _benchmark_manager(
             # noinspection PyProtectedMember
             result.backup_size = du(manager._backup_dir)
             gc.collect()
+
+            if "restore" in _actions:
+                result.restore_times = _benchmark_restore(manager, progress)
+            gc.collect()
         finally:
             gc.enable()
     return result
@@ -186,6 +195,22 @@ def _benchmark_creation(
                 (capture / ".git").unlink()
     manager._world = orig_world
     return create_times
+
+
+def _benchmark_restore(
+    manager: backup.BaseBackupManager[Any], progress: Callable[[str], Any]
+) -> list[int]:
+    restore_times = []
+    backups = manager.list_backups()
+    for idx, info in enumerate(backups):
+        logger.info(f"Restoring snapshot {info.desc}")
+        id_ = info.id if manager.index_by == "id" else idx
+
+        start = time.perf_counter_ns()
+        manager.restore_backup(id_, progress)
+        end = time.perf_counter_ns()
+        restore_times.append(end - start)
+    return restore_times
 
 
 def _configure_logging(args: argparse.Namespace) -> None:
