@@ -38,7 +38,7 @@ class DummyExecutor(cf.Executor):
         future.set_result(fn(*args, **kwargs))
         return future
 
-    def map(self, fn: Callable[..., T], *iterables: Iterable[Any], **_: object) -> Iterator[T]:
+    def map(self, fn: Callable[..., T], *iterables: Iterable[Any], **_: "Unused") -> Iterator[T]:
         return map(fn, *iterables)
 
 
