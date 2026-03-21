@@ -18,15 +18,14 @@ import os
 import shutil
 import tempfile
 import time
+from collections.abc import Callable, MutableMapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from minedelta import backup
 
 if TYPE_CHECKING:
-    from types import TracebackType
-
-    from _typeshed import StrPath, Unused
+    from _typeshed import StrPath
 
 logger = logging.getLogger("bench")
 
@@ -87,7 +86,7 @@ def main() -> None:  # noqa: D103
             help=((manager.__doc__ or "").splitlines()[0]),
         )
     args = parser.parse_args()
-    _set_verbosity(args)
+    _configure_logging(args)
     args.func(args)
 
 
@@ -100,7 +99,7 @@ def _capture(args: argparse.Namespace) -> None:
         logger.debug(f"Found {existing_count} existing snapshots")
     if args.clean:
         logger.info("Cleaning up old snapshots")
-        shutil.rmtree(capture_directory, onerror=_rmtree_on_error)
+        shutil.rmtree(capture_directory)
         existing_count = 0
     capture_directory.mkdir(parents=True, exist_ok=True)
     new_capture = capture_directory / f"{existing_count}"
@@ -135,22 +134,32 @@ def _run(args: argparse.Namespace) -> None:
 
 
 def _benchmark_manager(
-    manager_type: type[backup.BaseBackupManager[Any]], _actions: set[str], capture_dir: Path
+    manager_type: type[backup.BaseBackupManager[Any]],
+    _actions: set[str],
+    capture_dir: Path,
+    verbose: bool,
 ) -> _BenchmarkResult:
     result = _BenchmarkResult()
+    manager_name = manager_type.__name__
+    # noinspection PyProtectedMember
+    progress = _ProgressAdapter(manager_name).debug if verbose else backup.base._noop
+    if issubclass(manager_type, backup.GitBackupManager):
+        logger.debug("Disabling git auto gc")
+        os.environ["GIT_AUTO_GC"] = "0"
     with tempfile.TemporaryDirectory() as tmpdir:
-        logger.info(f"Benchmarking {manager_type.__name__}")
+        logger.info(f"Benchmarking {manager_name}")
         world = Path(tmpdir, "world")
-        world.mkdir()
         backup_dir = Path(tmpdir, "backup")
         manager = manager_type(world, backup_dir)
+        world.mkdir()
+        manager.prepare()
         gc.disable()
         try:
-            create_times = _benchmark_creation(manager, capture_dir)
+            create_times = _benchmark_creation(manager, capture_dir, progress)
             if "create" in _actions:
                 result.create_times = create_times
-                # noinspection PyProtectedMember
-                result.backup_size = du(manager._backup_dir)
+            # noinspection PyProtectedMember
+            result.backup_size = du(manager._backup_dir)
             gc.collect()
         finally:
             gc.enable()
@@ -158,45 +167,54 @@ def _benchmark_manager(
 
 
 # noinspection PyProtectedMember
-def _benchmark_creation(manager: backup.BaseBackupManager[Any], capture_dir: Path) -> list[int]:
+def _benchmark_creation(
+    manager: backup.BaseBackupManager[Any], capture_dir: Path, progress: Callable[[str], Any]
+) -> list[int]:
     create_times = []
     orig_world = manager._world
-    progress_func = logger.debug if logger.isEnabledFor(logging.DEBUG) else backup.base._noop
     for capture in sorted(capture_dir.iterdir(), key=lambda p: int(p.stem)):
-        logger.info(f"creating snapshot {capture.name}")
+        logger.info(f"Creating snapshot {capture.name}")
         manager._world = capture
         manager.prepare()
         try:
             start = time.perf_counter_ns()
-            manager.create_backup(capture.name, progress_func)
+            manager.create_backup(capture.name, progress)
             end = time.perf_counter_ns()
             create_times.append(end - start)
         finally:
             if isinstance(manager, backup.GitBackupManager):
                 (capture / ".git").unlink()
     manager._world = orig_world
-    manager.prepare()
     return create_times
 
 
-def _set_verbosity(args: argparse.Namespace) -> None:
+def _configure_logging(args: argparse.Namespace) -> None:
     if args.quiet:
         level = logging.WARNING
     elif args.verbose > 1:
         level = logging.DEBUG
     else:
         level = logging.INFO
-    logging.basicConfig(level=level)
+    logging.basicConfig(
+        format="[%(asctime)s.%(msecs)03d] %(levelname)s:%(name)s:%(message)s",
+        datefmt="%H:%M:%S",
+        level=level,
+    )
     if args.verbose == 1:
         logger.setLevel(level=logging.DEBUG)
 
 
-def _rmtree_on_error(
-    _function: "Unused",
-    path: str,
-    exc_info: tuple[type[BaseException], BaseException, "TracebackType"],
-) -> None:
-    logger.warning(f"failed to remove {path}", exc_info=exc_info)
+class _ProgressAdapter(logging.LoggerAdapter):
+    def __init__(self, manager_name: str):
+        self.manager_name = manager_name
+        super().__init__(logger)
+
+    def process(
+        self,
+        msg: Any,  # noqa: ANN401
+        kwargs: MutableMapping[str, Any],
+    ) -> tuple[str, MutableMapping[str, Any]]:
+        return f"({self.manager_name}) {msg}", kwargs
 
 
 def du(path: "StrPath") -> int:
