@@ -425,13 +425,13 @@ name = "minedelta"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [
+    { name = "backports-zstd", marker = "python_full_version < '3.14'" },
     { name = "msgspec" },
     { name = "typing-extensions", marker = "python_full_version < '3.12'" },
 ]
 
 [package.optional-dependencies]
 fast = [
-    { name = "backports-zstd", marker = "python_full_version < '3.14'" },
     { name = "nbtcompare" },
 ]
 git = [
@@ -441,7 +441,6 @@ lz4 = [
     { name = "lz4" },
 ]
 standard = [
-    { name = "backports-zstd", marker = "python_full_version < '3.14'" },
     { name = "dulwich" },
     { name = "lz4" },
     { name = "nbtcompare" },
@@ -474,8 +473,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "backports-zstd", marker = "python_full_version < '3.14' and extra == 'fast'", specifier = ">=1.3.0" },
-    { name = "backports-zstd", marker = "python_full_version < '3.14' and extra == 'standard'", specifier = ">=1.3.0" },
+    { name = "backports-zstd", marker = "python_full_version < '3.14'", specifier = ">=1.3.0" },
     { name = "dulwich", marker = "extra == 'git'", specifier = ">=1.0.0" },
     { name = "dulwich", marker = "extra == 'standard'", specifier = ">=1.0.0" },
     { name = "lz4", marker = "extra == 'lz4'", specifier = ">=4.4.5" },

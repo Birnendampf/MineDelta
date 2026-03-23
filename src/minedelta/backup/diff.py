@@ -13,7 +13,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Container, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, Self
+from typing import TYPE_CHECKING, Final, Self
 
 import msgspec
 
@@ -22,29 +22,18 @@ from minedelta.region import RegionFile
 
 from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, _MetaDataManager, _noop
 
+if TYPE_CHECKING:
+    from _typeshed import StrPath, Unused
+
 if sys.version_info >= (3, 12):  # pragma: no cover
     from typing import override
 else:
     from typing_extensions import override
 
-if TYPE_CHECKING:
-    from _typeshed import StrPath, Unused
-
-# try to use zstandard compression if available
-
-try:
-    if sys.version_info >= (3, 14):  # pragma: no cover
-        import tarfile
-
-        # optional module. could be unavailable
-        from compression import zstd  # noqa: F401
-    else:
-        from backports.zstd import tarfile
-    _DEFAULT_COMPRESSION: Literal["zst", "gz"] = "zst"
-except ImportError:  # pragma: no cover
-    import tarfile  # type: ignore[no-redef]
-
-    _DEFAULT_COMPRESSION = "gz"
+if sys.version_info >= (3, 14):  # pragma: no cover
+    import tarfile
+else:
+    from backports.zstd import tarfile
 
 __all__ = ["DiffBackupManager"]
 
@@ -124,14 +113,13 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
     workers equal to the number of available cpu cores will be used
     """
 
-    __slots__ = ("_compression", "_tar_options")
+    __slots__ = ("_tar_options",)
     _BackupDataDECODER = msgspec.msgpack.Decoder(list[BackupData])
 
     def __init__(
         self,
         save: "StrPath",
         backup_dir: Path,
-        compression_alg: Literal["gz", "zst"] = _DEFAULT_COMPRESSION,
         zstd_options: Mapping[int, int] | None = None,
     ):
         """Create a new DiffBackupManager.
@@ -144,7 +132,6 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
             zstd_options: additional options to pass to zst during compression. only effective if
               zst is being used
         """
-        self._compression = compression_alg
         self._tar_options = {"options": copy.copy(zstd_options)} if zstd_options else {}
         super().__init__(save, backup_dir)
 
@@ -174,9 +161,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                         )
                         progress(f'recompressing "{prev.id}"')
                         new_previous = Path(temp_dir, prev.name)
-                        with tarfile.open(
-                            new_previous, "x:" + self._compression, **self._tar_options
-                        ) as prev_tar:  # type: ignore[call-overload]
+                        with tarfile.open(new_previous, "x:zst", **self._tar_options) as prev_tar:
                             prev_tar.add(prev_world, "")
                 # ensure backup creation went well before overwriting prev
                 progress("compressing world")
@@ -188,7 +173,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         return BackupInfo(new_backup.timestamp, new_backup.id, new_backup.desc)
 
     def _compress_world(self, dest: Path) -> None:
-        with tarfile.open(dest, "x:" + self._compression, **self._tar_options) as new_tar:  # type: ignore[call-overload]
+        with tarfile.open(dest, "x:zst", **self._tar_options) as new_tar:
             new_tar.add(self._world, "", filter=_backup_filter)
 
     @override
@@ -269,7 +254,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 if Path(older, file).exists():
                     chosen_not_present.discard(file)
             progress(f'recompressing "{data_chosen.id}" as "{data_older.name}"')
-            with tarfile.open(older_archive, "w:" + self._compression) as tar:  # type: ignore[call-overload]
+            with tarfile.open(older_archive, "w:zst") as tar:
                 tar.add(chosen, "")
 
         if id_:
