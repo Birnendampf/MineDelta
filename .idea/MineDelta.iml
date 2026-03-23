@@ -9,6 +9,7 @@
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/NBTCompare/target" />
       <excludeFolder url="file://$MODULE_DIR$/benchmark/.captures" />
+      <excludeFolder url="file://$MODULE_DIR$/.venv_win" />
     </content>
     <orderEntry type="jdk" jdkName="uv (MineDelta)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
