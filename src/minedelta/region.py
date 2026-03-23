@@ -32,10 +32,10 @@ __all__ = [
 DECOMP_LUT: Final[dict[int, Callable[["ReadableBuffer"], bytes]]] = {3: bytes}
 """chunk compression schemes according to https://minecraft.wiki/w/Region_file_format#Payload
 
-Documented but unsupported:
-  - 127: Custom compression algorithm
+Special compression values::
+  - 127: Custom compression algorithm (unsupported)
   - x + 128: the compressed data is saved in a file called c.x.z.mcc, where x and z are the chunk's
-    coordinates, instead of the usual position.
+    coordinates, instead of the usual position. This is handled by the nbt module.
 """
 
 # MCA Selector treats "no data" and "uncompressed" the same, so it is probably correct

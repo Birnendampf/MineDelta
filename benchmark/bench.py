@@ -102,7 +102,7 @@ def _capture(args: argparse.Namespace) -> None:
         shutil.rmtree(capture_directory)
         existing_count = 0
     capture_directory.mkdir(parents=True, exist_ok=True)
-    new_capture = capture_directory / f"{existing_count}"
+    new_capture = capture_directory / str(existing_count)
     logger.info("Creating snapshot...")
     shutil.copytree(world, new_capture)
     if logger.isEnabledFor(logging.DEBUG):
@@ -134,7 +134,7 @@ def _run(args: argparse.Namespace) -> None:
     raw_size = sum(du(capture) for capture in captures)
     for manager, result in results.items():
         print(manager)
-        for action in actions:
+        for action in sorted(actions):
             times = getattr(result, action + "_times")
             print(
                 f"  {action}: {sum(times) / len(times) / 10**9:.3f}s",
@@ -164,13 +164,13 @@ def _benchmark_manager(
         world = Path(tmpdir, "world")
         backup_dir = Path(tmpdir, "backup")
         manager = manager_type(world, backup_dir)
-        world.mkdir()
-        manager.prepare()
         gc.disable()
         try:
             create_times = _benchmark_create(manager, captures, progress)
             if "create" in _actions:
                 result.create_times = create_times
+            world.mkdir()
+            manager.prepare()
             # noinspection PyProtectedMember
             result.backup_size = du(manager._backup_dir)
             gc.collect()
@@ -194,20 +194,15 @@ def _benchmark_create(
     manager: backup.BaseBackupManager[Any], captures: list[Path], progress: Callable[[str], Any]
 ) -> list[int]:
     create_times = []
-    orig_world = manager._world
     for capture in captures:
+        shutil.copytree(capture, manager._world)
         logger.info(f"Creating snapshot {capture.name}")
-        manager._world = capture
         manager.prepare()
-        try:
-            start = time.perf_counter_ns()
-            manager.create_backup(capture.name, progress)
-            end = time.perf_counter_ns()
-            create_times.append(end - start)
-        finally:
-            if isinstance(manager, backup.GitBackupManager):
-                (capture / ".git").unlink()
-    manager._world = orig_world
+        start = time.perf_counter_ns()
+        manager.create_backup(capture.name, progress)
+        end = time.perf_counter_ns()
+        create_times.append(end - start)
+        shutil.rmtree(manager._world)
     return create_times
 
 
@@ -215,8 +210,7 @@ def _benchmark_restore(
     manager: backup.BaseBackupManager[Any], progress: Callable[[str], Any]
 ) -> list[int]:
     restore_times = []
-    backups = manager.list_backups()
-    backup_enumeration = list(enumerate(backups))
+    backup_enumeration = list(enumerate(manager.list_backups()))
     backup_enumeration.reverse()
     for idx, info in backup_enumeration:
         logger.info(f"Restoring snapshot {info.desc}")

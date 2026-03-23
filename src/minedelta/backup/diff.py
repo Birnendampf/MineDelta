@@ -209,8 +209,8 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 if prev:
                     # True temporary directory to reduce IO, see #39
                     with tempfile.TemporaryDirectory() as temp_2:
-                        progress(f'turning "{prev.id}" into diff')
                         prev_world = _extract_backup(self._backup_dir, temp_2, prev)
+                        progress(f'turning "{prev.id}" into diff')
                         not_present = _filter_diff(
                             src=self._world, dest=prev_world, scope=scope, progress=progress
                         )
