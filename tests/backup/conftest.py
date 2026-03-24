@@ -11,10 +11,18 @@ from minedelta.backup import (
     DiffBackupManager,
     GitBackupManager,
     HardlinkBackupManager,
+    diff,
 )
 from tests import helpers
 
 WorldVariations: TypeAlias = tuple[Path, ...]
+
+
+# noinspection PyProtectedMember
+@pytest.fixture(scope="session", autouse=True)
+def _no_filtar() -> None:
+    diff.__extract = diff._py_extract
+    diff._create_archive = diff._py_create_archive
 
 
 @pytest.fixture(scope="session")
