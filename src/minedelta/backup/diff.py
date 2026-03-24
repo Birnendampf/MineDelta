@@ -5,13 +5,12 @@ For more details, see `DiffBackupManager`.
 
 import concurrent.futures
 import contextlib
-import copy
 import filecmp
 import os
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable, Container, Mapping
+from collections.abc import Callable, Iterable, Set
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Self
 
@@ -32,7 +31,11 @@ else:
 
 if sys.version_info >= (3, 14):  # pragma: no cover
     import tarfile
+
+    from compression import zstd
+
 else:
+    from backports import zstd
     from backports.zstd import tarfile
 
 __all__ = ["DiffBackupManager"]
@@ -53,7 +56,7 @@ def _extract_backup(
     backup_dir: Path,
     temp_dir: "StrPath",
     backup_data: BackupData,
-    skip: Container[str] | None = None,
+    skip: Iterable[str] | None = None,
 ) -> Path:
     """Extract only paths not listed in `skip`.
 
@@ -66,6 +69,15 @@ def _extract_backup(
     Returns:
         the path of the extracted backup.
     """
+    extracted = Path(temp_dir, backup_data.id)
+    __extract(backup_dir / backup_data.name, extracted, skip)
+    return extracted
+
+
+def _py_extract(
+    src: "StrPath", dest: "StrPath", exclude: Iterable["StrPath"] | None = None
+) -> None:
+    skip = [os.fspath(file) for file in exclude or ()]
     if skip:
         skipped_dirs = []
 
@@ -79,19 +91,47 @@ def _extract_backup(
             return tarfile.data_filter(member, dest_path)
     else:
         custom_filter = tarfile.data_filter
-
-    extracted = Path(temp_dir, backup_data.id)
-    with tarfile.open(backup_dir / backup_data.name, "r:*") as tar:
-        tar.extractall(extracted, filter=custom_filter)  # noqa: S202
-    return extracted
+    with tarfile.open(src, "r:zst") as tar:
+        tar.extractall(dest, filter=custom_filter)  # noqa: S202
 
 
-def _backup_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
-    """Filter for creating tarfiles that drops files from BACKUP_IGNORE."""
-    # using os.path because it is not worth it to create a Path just for this
-    if os.path.basename(tarinfo.name) in BACKUP_IGNORE_FROZENSET:  # noqa: PTH119
-        return None
-    return tarinfo
+def _py_create_archive(
+    src: "StrPath",
+    dest: "StrPath",
+    exclude: Set[str] = frozenset(),
+    n_workers: int = 0,
+    level: int = 0,
+) -> None:
+    if not exclude:
+        _backup_filter = None
+    else:
+
+        def _backup_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
+            """Filter for creating tarfiles that drops files from BACKUP_IGNORE."""
+            # using os.path because it is not worth it to create a Path just for this
+            if os.path.basename(tarinfo.name) in exclude:  # noqa: PTH119
+                return None
+            return tarinfo
+
+    with tarfile.open(
+        dest,
+        "w:zst",
+        options={
+            zstd.CompressionParameter.nb_workers: n_workers,
+            zstd.CompressionParameter.compression_level: level,
+        },
+    ) as new_tar:
+        new_tar.add(src, "", filter=_backup_filter)
+
+
+try:
+    import filtar
+except ImportError:
+    __extract = _py_extract
+    _create_archive = _py_create_archive
+else:
+    __extract = filtar.extract
+    _create_archive = filtar.create
 
 
 class DiffBackupManager(_MetaDataManager[BackupData]):
@@ -113,26 +153,28 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
     workers equal to the number of available cpu cores will be used
     """
 
-    __slots__ = ("_tar_options",)
+    __slots__ = ("_zstd_level", "_zstd_workers")
     _BackupDataDECODER = msgspec.msgpack.Decoder(list[BackupData])
 
     def __init__(
         self,
         save: "StrPath",
         backup_dir: Path,
-        zstd_options: Mapping[int, int] | None = None,
+        zstd_worker_count: int = 0,
+        compression_level: int = 0,
     ):
         """Create a new DiffBackupManager.
 
         Args:
             save: world to create backups for
             backup_dir: where to store the backups
-            compression_alg: compression algorithm to use. defaults to 'zst' if available, 'gz'
-              otherwise
-            zstd_options: additional options to pass to zst during compression. only effective if
-              zst is being used
+            zstd_worker_count: how many workers to use for compression.
+              More workers improve speed at the cost of memory usage.
+              Check if minedelta already saturates your CPU before increasing this.
+            compression_level: compression level to use when creating backups.
         """
-        self._tar_options = {"options": copy.copy(zstd_options)} if zstd_options else {}
+        self._zstd_workers = zstd_worker_count
+        self._zstd_level = compression_level
         super().__init__(save, backup_dir)
 
     @override
@@ -161,9 +203,13 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                         )
                         progress(f'recompressing "{prev.id}"')
                         new_previous = Path(temp_dir, prev.name)
-                        with tarfile.open(new_previous, "x:zst", **self._tar_options) as prev_tar:
-                            prev_tar.add(prev_world, "")
-                # ensure backup creation went well before overwriting prev
+                        _create_archive(
+                            prev_world,
+                            new_previous,
+                            n_workers=self._zstd_workers,
+                            level=self._zstd_level,
+                        )
+                        # ensure backup creation went well before overwriting prev
                 progress("compressing world")
             new_backup_file.replace(self._backup_dir / new_backup.name)
             if prev:
@@ -173,8 +219,9 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         return BackupInfo(new_backup.timestamp, new_backup.id, new_backup.desc)
 
     def _compress_world(self, dest: Path) -> None:
-        with tarfile.open(dest, "x:zst", **self._tar_options) as new_tar:
-            new_tar.add(self._world, "", filter=_backup_filter)
+        _create_archive(
+            self._world, dest, BACKUP_IGNORE_FROZENSET, self._zstd_workers, self._zstd_level
+        )
 
     @override
     def restore_backup(
@@ -254,9 +301,9 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 if Path(older, file).exists():
                     chosen_not_present.discard(file)
             progress(f'recompressing "{data_chosen.id}" as "{data_older.name}"')
-            with tarfile.open(older_archive, "w:zst") as tar:
-                tar.add(chosen, "")
-
+            _create_archive(
+                chosen, older_archive, n_workers=self._zstd_workers, level=self._zstd_level
+            )
         if id_:
             # handle the following situation (1 being deleted):
             # idx | files       | diff              | new diff
