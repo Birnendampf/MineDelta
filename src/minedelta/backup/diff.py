@@ -131,7 +131,7 @@ def _py_create_archive(
 
 try:
     import filtar
-except ImportError:
+except ImportError:  # pragma: no cover
     __extract = _py_extract
     _create_archive = _py_create_archive
 else:
