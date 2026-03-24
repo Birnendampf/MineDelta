@@ -48,8 +48,8 @@ class BackupData(BackupInfo):
 
     @property
     def name(self) -> str:
-        """Return the name corresponding to this backup (id + ".bak")."""
-        return self.id + ".bak"
+        """Return the name corresponding to this backup (id + ".tar.zst")."""
+        return self.id + ".tar.zst"
 
 
 def _extract_backup(
@@ -70,7 +70,12 @@ def _extract_backup(
         the path of the extracted backup.
     """
     extracted = Path(temp_dir, backup_data.id)
-    __extract(backup_dir / backup_data.name, extracted, skip)
+    src = backup_dir / backup_data.name
+    try:
+        __extract(src, extracted, skip)
+    except OSError:  # maybe some other compression method?
+        extracted = Path(temp_dir, "fallback_" + backup_data.id)
+        _py_extract(src, extracted, skip)
     return extracted
 
 
@@ -91,7 +96,7 @@ def _py_extract(
             return tarfile.data_filter(member, dest_path)
     else:
         custom_filter = tarfile.data_filter
-    with tarfile.open(src, "r:zst") as tar:
+    with tarfile.open(src, "r:*") as tar:
         tar.extractall(dest, filter=custom_filter)  # noqa: S202
 
 
