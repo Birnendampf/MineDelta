@@ -152,6 +152,7 @@ def _run(args: argparse.Namespace) -> None:
         )
 
 
+# noinspection PyProtectedMember
 def _benchmark_manager(
     manager_type: type[backup.BaseBackupManager[Any]],
     _actions: set[str],
@@ -160,7 +161,6 @@ def _benchmark_manager(
 ) -> _BenchmarkResult:
     result = _BenchmarkResult()
     manager_name = manager_type.__name__
-    # noinspection PyProtectedMember
     progress = _ProgressAdapter(manager_name[:-13]).debug if verbose else backup.base._noop
     if issubclass(manager_type, backup.GitBackupManager):
         logger.debug("Disabling git auto gc")
@@ -172,12 +172,16 @@ def _benchmark_manager(
         manager = manager_type(world, backup_dir)
         gc.disable()
         try:
-            create_times = _benchmark_create(manager, captures, progress)
-            if "create" in _actions:
-                result.create_times = create_times
+            if "create" not in _actions:
+                logger.info("Preparing manager (this may take a while...)")
+                old_level = logger.level
+                logger.setLevel(logging.WARNING)
+                _benchmark_create(manager, captures, backup.base._noop)
+                logger.setLevel(old_level)
+            else:
+                result.create_times = _benchmark_create(manager, captures, progress)
             world.mkdir()
             manager.prepare()
-            # noinspection PyProtectedMember
             result.backup_size = du(manager._backup_dir)
             gc.collect()
 
