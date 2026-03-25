@@ -159,8 +159,7 @@ def manager(request: pytest.FixtureRequest, tmp_path: Path) -> BaseBackupManager
 def loaded_manager(
     world_variations: WorldVariations, manager: BaseBackupManager[Any]
 ) -> BaseBackupManager[Any]:
-    # noinspection PyProtectedMember
-    orig_world = manager._world
+    orig_world = manager.world
     if isinstance(manager, GitBackupManager):
         for path in reversed(world_variations):
             manager._world = path

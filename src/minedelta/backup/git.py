@@ -5,7 +5,7 @@ For more details, see `GitBackupManager`.
 
 try:
     import dulwich as dw
-except ImportError:
+except ImportError:  # pragma: no coverage
     raise ImportError("dulwich is not installed") from None
 
 import datetime
@@ -32,7 +32,7 @@ else:
     from typing_extensions import override
 
 
-from .base import BACKUP_IGNORE, BackupInfo, BaseBackupManager, _delete_file_or_dir, _noop
+from .base import BACKUP_IGNORE, BackupInfo, BaseBackupManager, _noop, delete_file_or_dir
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
@@ -99,7 +99,7 @@ class GitBackupManager(BaseBackupManager[str]):
                 need_link = False
                 need_move = False
         else:
-            _delete_file_or_dir(world_git)
+            delete_file_or_dir(world_git)
             if (_backup_dir_repo := self._check_repo(self._backup_dir, True)) is not None:
                 # repo exists but has no link to it
                 _backup_dir_repo.close()
@@ -109,7 +109,7 @@ class GitBackupManager(BaseBackupManager[str]):
 
         if need_move:
             assert r is not None  # noqa: S101
-            _delete_file_or_dir(self._backup_dir)
+            delete_file_or_dir(self._backup_dir)
             shutil.move(r.controldir(), self._backup_dir)
             r.close()
         if need_link:
