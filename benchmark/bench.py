@@ -186,7 +186,7 @@ def _benchmark_manager(
                 result.create_times = _benchmark_create(manager, captures, progress)
             world.mkdir()
             manager.prepare()
-            result.backup_size = du(manager._backup_dir)
+            result.backup_size = du(backup_dir)
             gc.collect()
 
             if "restore" in _actions:
@@ -203,20 +203,19 @@ def _benchmark_manager(
     return result
 
 
-# noinspection PyProtectedMember
 def _benchmark_create(
     manager: backup.BaseBackupManager[Any], captures: list[Path], progress: Callable[[str], Any]
 ) -> list[int]:
     create_times = []
     for capture in captures:
-        shutil.copytree(capture, manager._world)
+        shutil.copytree(capture, manager.world)
         logger.info(f"Creating snapshot {capture.name}")
         manager.prepare()
         start = time.perf_counter_ns()
         manager.create_backup(capture.name, progress)
         end = time.perf_counter_ns()
         create_times.append(end - start)
-        shutil.rmtree(manager._world)
+        shutil.rmtree(manager.world)
     return create_times
 
 
@@ -235,7 +234,6 @@ def _benchmark_restore(
     return restore_times
 
 
-# noinspection PyProtectedMember
 def _benchmark_delete(
     manager: backup.BaseBackupManager[Any], progress: Callable[[str], Any]
 ) -> list[int]:
@@ -244,7 +242,7 @@ def _benchmark_delete(
     delete_times = []
     if len(backups) > 1:
         need_state_copy = len(backups) <= 2 and isinstance(manager, backup.DiffBackupManager)
-        backup_dir = manager._backup_dir
+        backup_dir = manager.backup_dir
         new_dir = backup_dir.parent / "old_backups"
 
         if need_state_copy:

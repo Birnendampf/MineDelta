@@ -61,6 +61,16 @@ class BaseBackupManager(Generic[_id_T], metaclass=abc.ABCMeta):
     __slots__ = "_backup_dir", "_world"
     index_by: ClassVar[Literal["idx", "id"]]
 
+    @property
+    def backup_dir(self) -> Path:
+        """The directory in which the manager stores its backups."""
+        return self._backup_dir
+
+    @property
+    def world(self) -> "StrPath":
+        """The world which the manager manages backups for."""
+        return self._world
+
     def __init__(self, save: "StrPath", backup_dir: Path):
         """Create a new backup manager.
 
@@ -137,7 +147,7 @@ class BaseBackupManager(Generic[_id_T], metaclass=abc.ABCMeta):
     # TODO: add cron functionality with aiocron
 
 
-def _delete_file_or_dir(path: Path) -> None:
+def delete_file_or_dir(path: Path) -> None:
     try:
         path.unlink()
     except (IsADirectoryError, PermissionError):

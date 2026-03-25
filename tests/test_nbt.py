@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Protocol
 import pytest
 import rapidnbt
 
-# noinspection PyProtectedMember
 import minedelta.nbt
 
 if TYPE_CHECKING:

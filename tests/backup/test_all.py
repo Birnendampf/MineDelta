@@ -71,7 +71,7 @@ def test_restore_backup(
     for i, variation in enumerate(world_variations):
         with subtests.test("check world", idx=i):
             restore_func(i)
-            assert_matches_world(Path(loaded_manager._world), variation)
+            assert_matches_world(Path(loaded_manager.world), variation)
 
 
 def get_restore_func(manager: BaseBackupManager[Any]) -> Callable[[int], None]:
@@ -103,7 +103,7 @@ def test_delete_backup(
     variations = list(world_variations)
     deleted = variations.pop(delete_idx)
     test_restore_backup(loaded_manager, variations, subtests)
-    orig_world = loaded_manager._world
+    orig_world = loaded_manager.world
     loaded_manager._world = deleted
     if isinstance(loaded_manager, GitBackupManager):
         loaded_manager.prepare()
@@ -119,7 +119,7 @@ def test_delete_backup(
 def test_preserve_ignore(manager: BaseBackupManager[Any]) -> None:
     ignored_files = []
     manager.create_backup("empty")
-    world = Path(manager._world)
+    world = Path(manager.world)
 
     icon = world / "icon.png"
     icon.touch()

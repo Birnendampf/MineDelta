@@ -95,6 +95,8 @@ def _py_extract(
                 if member.isdir():
                     skipped_dirs.append(member.name)
                 return None
+            # TODO: if there is e.g. a top level file named "reg", the region directory and its
+            #  contents will falsely be ignored
             if any(member.name.startswith(d) for d in skipped_dirs):
                 return None
             return tarfile.data_filter(member, dest_path)
@@ -116,7 +118,6 @@ def _py_create_archive(
     else:
 
         def _backup_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
-            """Filter for creating tarfiles that drops files from BACKUP_IGNORE."""
             # using os.path because it is not worth it to create a Path just for this
             if os.path.basename(tarinfo.name) in exclude:  # noqa: PTH119
                 return None
