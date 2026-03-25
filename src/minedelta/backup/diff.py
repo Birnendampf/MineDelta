@@ -73,7 +73,10 @@ def _extract_backup(
     src = backup_dir / backup_data.name
     try:
         __extract(src, extracted, skip)
-    except OSError:  # maybe some other compression method?
+    except OSError:
+        if __extract is _py_extract:
+            raise
+        # maybe some other compression method?
         extracted = Path(temp_dir, "fallback_" + backup_data.id)
         _py_extract(src, extracted, skip)
     return extracted
@@ -282,33 +285,30 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         data_chosen = backups_data[id_]
         chosen_not_present = data_chosen.not_present.copy()
         progress(f'merging "{data_older.id}" into "{data_chosen.id}"')
-        older_archive = self._backup_dir / data_older.name
-        with (
-            tempfile.TemporaryDirectory() as temp_dir,
-            ThreadScope(executor, "delete backup") as scope,
-        ):
-            chosen_fut = scope.submit(
-                _extract_backup,
-                self._backup_dir,
-                temp_dir,
-                data_chosen,
-                data_older.not_present,
-            )
-            older = _extract_backup(self._backup_dir, temp_dir, data_older)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with ThreadScope(executor, "delete backup") as scope:
+                chosen_fut = scope.submit(
+                    _extract_backup, self._backup_dir, temp_dir, data_chosen, data_older.not_present
+                )
+                older = _extract_backup(self._backup_dir, temp_dir, data_older)
             chosen = chosen_fut.result()
-            _apply_diff(src=older, dest=chosen, defragment=True)
             # handle the following situation (1 being deleted):
             # idx | files | diff | new diff
             # 0   | a0    |      |
             # 1   |       | -a   | a0
             # 2   | a0    | a0   | (deleted)
             for file in data_chosen.not_present:
-                if Path(older, file).exists():
+                if (older / file).exists():
                     chosen_not_present.discard(file)
+
+            _apply_diff(src=older, dest=chosen, defragment=True)
             progress(f'recompressing "{data_chosen.id}" as "{data_older.name}"')
-            _create_archive(
-                chosen, older_archive, n_workers=self._zstd_workers, level=self._zstd_level
-            )
+            with tempfile.TemporaryDirectory(dir=self._backup_dir) as temp_2:
+                new_older = Path(temp_2, data_older.name)
+                _create_archive(
+                    chosen, new_older, n_workers=self._zstd_workers, level=self._zstd_level
+                )
+                new_older.replace(self._backup_dir / data_older.name)
         if id_:
             # handle the following situation (1 being deleted):
             # idx | files       | diff              | new diff
