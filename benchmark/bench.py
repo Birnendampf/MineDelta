@@ -18,7 +18,7 @@ import os
 import shutil
 import tempfile
 import time
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, Generator, MutableMapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -101,7 +101,7 @@ def _capture(args: argparse.Namespace) -> None:
     capture_directory: Path = args.capture_directory.expanduser()
     existing_count = 0
     if capture_directory.is_dir():
-        existing_count = len(list(capture_directory.iterdir()))
+        existing_count = len(list(_valid_captures(capture_directory)))
         logger.debug(f"Found {existing_count} existing snapshots")
     if args.clean:
         logger.info("Cleaning up old snapshots")
@@ -113,6 +113,10 @@ def _capture(args: argparse.Namespace) -> None:
     shutil.copytree(world, new_capture)
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(f"Finished ({du(new_capture) // 2**20}MiB)")
+
+
+def _valid_captures(capture_dir: Path) -> Generator[Path, Any, None]:
+    return (c for c in capture_dir.iterdir() if c.name.isdecimal())
 
 
 @dataclasses.dataclass(slots=True)
@@ -130,7 +134,7 @@ def _run(args: argparse.Namespace) -> None:
         args.manager
         or (backup.HardlinkBackupManager, backup.GitBackupManager, backup.DiffBackupManager)
     )
-    captures = sorted(capture_dir.iterdir(), key=lambda p: int(p.stem))
+    captures = sorted(_valid_captures(capture_dir), key=lambda p: int(p.stem))
     if not captures:
         raise FileNotFoundError(f"No captures found in {capture_dir}")
     results = {
@@ -220,9 +224,7 @@ def _benchmark_restore(
     manager: backup.BaseBackupManager[Any], progress: Callable[[str], Any]
 ) -> list[int]:
     restore_times = []
-    backup_enumeration = list(enumerate(manager.list_backups()))
-    backup_enumeration.reverse()
-    for idx, info in backup_enumeration:
+    for idx, info in reversed(list(enumerate(manager.list_backups()))):
         logger.info(f"Restoring snapshot {info.desc}")
         id_ = info.id if manager.index_by == "id" else idx
 
