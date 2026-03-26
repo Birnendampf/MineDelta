@@ -40,6 +40,11 @@ def main() -> None:  # noqa: D103
         help="Path to the captures that should be used for benchmarking. "
         'Defaults to ".captures" in the same directory as this script.',
     )
+    parser.add_argument(
+        "-t",
+        "--temp-dir",
+        help="Change the temporary directory. Set this to a tmpfs/ramdisk for better consistency.",
+    )
     verbosity_group = parser.add_mutually_exclusive_group()
     verbosity_group.add_argument("-q", "--quiet", action="store_true")
     verbosity_group.add_argument("-v", "--verbose", action="count", default=0)
@@ -87,6 +92,7 @@ def main() -> None:  # noqa: D103
         )
     args = parser.parse_args()
     _configure_logging(args)
+    _configure_tempdir(args)
     args.func(args)
 
 
@@ -290,6 +296,22 @@ class _ProgressAdapter(logging.LoggerAdapter[logging.Logger]):
         kwargs: MutableMapping[str, Any],
     ) -> tuple[str, MutableMapping[str, Any]]:
         return f"({self.manager_name}) {msg}", kwargs
+
+
+def _configure_tempdir(args: argparse.Namespace) -> None:
+    if args.temp_dir:
+        try:
+            with tempfile.TemporaryFile(dir=args.temp_dir) as temp:
+                temp.write(b":3")
+        except OSError as e:
+            msg = f"'{args.temp_dir}' is not a valid temporary directory"
+            raise type(e)(msg) from None
+        tempfile.tempdir = args.temp_dir
+    elif os.name == "nt" or not Path(tempfile.gettempdir()).is_mount():
+        logger.warning(
+            "No temporary directory specified. "
+            f"Results may be inconsistent unless '{tempfile.gettempdir()}' is on a tmpfs or ramdisk"
+        )
 
 
 def du(path: "StrPath") -> int:
