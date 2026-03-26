@@ -85,7 +85,7 @@ def _extract_backup(
 def _py_extract(
     src: "StrPath", dest: "StrPath", exclude: Iterable["StrPath"] | None = None
 ) -> None:
-    skip = [os.fspath(file) for file in exclude or ()]
+    skip = {os.fspath(file) for file in exclude or ()}
     if skip:
         skipped_dirs = []
 
@@ -106,9 +106,9 @@ def _py_extract(
 def _py_create_archive(
     src: "StrPath",
     dest: "StrPath",
-    exclude: Set[str] = frozenset(),
     n_workers: int = 0,
     level: int = 0,
+    exclude: Set[str] = frozenset(),
 ) -> None:
     if not exclude:
         _backup_filter = None
@@ -214,8 +214,8 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                         _create_archive(
                             prev_world,
                             new_previous,
-                            n_workers=self._zstd_workers,
-                            level=self._zstd_level,
+                            self._zstd_workers,
+                            self._zstd_level,
                         )
                         # ensure backup creation went well before overwriting prev
                 progress("compressing world")
@@ -228,7 +228,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
 
     def _compress_world(self, dest: Path) -> None:
         _create_archive(
-            self._world, dest, BACKUP_IGNORE_FROZENSET, self._zstd_workers, self._zstd_level
+            self._world, dest, self._zstd_workers, self._zstd_level, BACKUP_IGNORE_FROZENSET
         )
 
     @override
@@ -305,9 +305,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
             progress(f'recompressing "{data_chosen.id}" as "{data_older.name}"')
             with tempfile.TemporaryDirectory(dir=self._backup_dir) as temp_2:
                 new_older = Path(temp_2, data_older.name)
-                _create_archive(
-                    chosen, new_older, n_workers=self._zstd_workers, level=self._zstd_level
-                )
+                _create_archive(chosen, new_older, self._zstd_workers, self._zstd_level)
                 new_older.replace(self._backup_dir / data_older.name)
         if id_:
             # handle the following situation (1 being deleted):

@@ -43,14 +43,13 @@ lz4 = [
     "lz4>=4.4.5",
 ]
 fast = [
-    "filtar>=0.1.1",
+    "filtar>=0.3.0,<0.4.0",
     "nbtcompare==0.1.0",
 ]
 standard = [
+    "minedelta[fast]",
     "dulwich>=1.0.0",
     "lz4>=4.4.5",
-    "filtar>=0.1.1",
-    "nbtcompare==0.1.0",
 ]
 
 [build-system]
