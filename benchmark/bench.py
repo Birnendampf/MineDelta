@@ -11,14 +11,18 @@
 """Script to benchmark MineDelta."""
 
 import argparse
+import base64
 import dataclasses
 import gc
+import hashlib
 import logging
 import os
 import shutil
+import stat
+import struct
 import tempfile
 import time
-from collections.abc import Callable, Generator, MutableMapping
+from collections.abc import Callable, MutableMapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -101,7 +105,7 @@ def _capture(args: argparse.Namespace) -> None:
     capture_directory: Path = args.capture_directory.expanduser()
     existing_count = 0
     if capture_directory.is_dir():
-        existing_count = len(list(_valid_captures(capture_directory)))
+        existing_count = len(_valid_captures(capture_directory))
         logger.debug(f"Found {existing_count} existing snapshots")
     if args.clean:
         logger.info("Cleaning up old snapshots")
@@ -115,8 +119,8 @@ def _capture(args: argparse.Namespace) -> None:
         logger.debug(f"Finished ({du(new_capture) // 2**20}MiB)")
 
 
-def _valid_captures(capture_dir: Path) -> Generator[Path, Any, None]:
-    return (c for c in capture_dir.iterdir() if c.name.isdecimal())
+def _valid_captures(capture_dir: Path) -> list[Path]:
+    return [c for c in capture_dir.iterdir() if c.name.isdecimal()]
 
 
 @dataclasses.dataclass(slots=True)
@@ -166,27 +170,41 @@ def _benchmark_manager(
     result = _BenchmarkResult()
     manager_name = manager_type.__name__
     progress = _ProgressAdapter(manager_name[:-13]).debug if verbose else backup.base._noop
+    cache = None
+    capture_dir = captures[0].parent
+    # hardlinks are not preserved in copies so it wastes a LOT of disk space
+    # + HardlinkBackupManager is fast enough to not need caching
+    cacheable = not issubclass(manager_type, backup.HardlinkBackupManager)
     if issubclass(manager_type, backup.GitBackupManager):
         logger.debug("Disabling git auto gc")
         os.environ["GIT_AUTO_GC"] = "0"
+
+    logger.info(f"Benchmarking {manager_name}")
     with tempfile.TemporaryDirectory() as tmpdir:
-        logger.info(f"Benchmarking {manager_name}")
         world = Path(tmpdir, "world")
         backup_dir = Path(tmpdir, "backup")
         manager = manager_type(world, backup_dir)
         gc.disable()
         try:
             if "create" not in _actions:
-                logger.info("Preparing manager (this may take a while...)")
-                old_level = logger.level
-                logger.setLevel(logging.WARNING)
-                _benchmark_create(manager, captures, backup.base._noop)
-                logger.setLevel(old_level)
+                cache = _get_cache(manager_name, capture_dir)
+                if cache:
+                    logger.debug(f"Found cached manager: {cache.name}")
+                    shutil.copytree(cache, backup_dir)
+                else:
+                    logger.info("Preparing manager (this may take a while...)")
+                    old_level = logger.level
+                    logger.setLevel(logging.WARNING)
+                    _benchmark_create(manager, captures, backup.base._noop)
+                    logger.setLevel(old_level)
             else:
                 result.create_times = _benchmark_create(manager, captures, progress)
             world.mkdir()
             manager.prepare()
             result.backup_size = du(backup_dir)
+            if not cache and cacheable:
+                logger.debug(f"Caching {manager_name}")
+                _set_cache(manager, capture_dir)
             gc.collect()
 
             if "restore" in _actions:
@@ -335,11 +353,63 @@ def du(path: "StrPath") -> int:
                     scan_stack.append(entry)
                 elif entry.inode() in seen_inodes:
                     continue
-                stat = entry.stat(follow_symlinks=False)
-                if not (is_dir or stat.st_nlink == 1):
+                st = entry.stat(follow_symlinks=False)
+                if not (is_dir or st.st_nlink == 1):
                     seen_inodes.add(entry.inode())
-                total_size += stat.st_size
+                total_size += st.st_size
     return total_size
+
+
+# file type, size and mtime
+_fingerprint_struct = struct.Struct(">HQQ")
+_FINGERPRINT = ""
+
+
+def get_fingerprint(path: Path) -> str:
+    """Recursively hash the path, type, size and mtime of all captures."""
+    hasher = hashlib.sha1(usedforsecurity=False)  # faster than md5 most CPUs
+    for capture in _valid_captures(path):
+        for root, dirs, files in os.walk(capture):
+            dirs.sort()
+            rel_root = os.path.relpath(root, capture)
+            for file_name in sorted(files):
+                # ruff: disable[PTH118, PTH116] hot code path, no pathlib here
+                file = os.path.join(root, file_name)
+                hasher.update(os.path.join(rel_root, file_name).encode())
+                st = os.stat(file)
+                hasher.update(
+                    _fingerprint_struct.pack(stat.S_IFMT(st.st_mode), st.st_size, st.st_mtime_ns)
+                )
+                # ruff: enable[PTH118, PTH116]
+    return base64.urlsafe_b64encode(hasher.digest())[:-1].decode("ascii")
+
+
+def _get_cache(manager_name: str, capture_dir: Path) -> Path | None:
+    global _FINGERPRINT  # noqa: PLW0603
+    cache = capture_dir / ".cache"
+    if not cache.is_dir():
+        return None
+    candidates = list(cache.glob(manager_name + "_*"))
+    if not candidates:
+        return None
+    if not _FINGERPRINT:
+        _FINGERPRINT = get_fingerprint(capture_dir)
+    chosen = None
+    for candidate in candidates:
+        if candidate.name == f"{manager_name}_{_FINGERPRINT}":
+            chosen = candidate
+        else:
+            shutil.rmtree(candidate)
+    return chosen
+
+
+def _set_cache(manager: backup.BaseBackupManager[Any], capture_dir: Path) -> None:
+    cache_dir = capture_dir / ".cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    fingerprint = get_fingerprint(capture_dir)
+    new_cache_entry = cache_dir / f"{type(manager).__name__}_{fingerprint}"
+    backup.base.delete_file_or_dir(new_cache_entry)
+    shutil.copytree(manager.backup_dir, new_cache_entry)
 
 
 if __name__ == "__main__":
