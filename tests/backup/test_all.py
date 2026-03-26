@@ -139,6 +139,11 @@ def test_preserve_ignore(manager: BaseBackupManager[Any]) -> None:
     some_pack.touch()
     ignored_files.append(some_pack)
 
+    deep = Path(world, "very", "deep", "within", "datapacks", "it", "even", "further", "within")
+    deep.parent.mkdir(parents=True)
+    deep.touch()
+    ignored_files.append(deep)
+
     restore_func = get_restore_func(manager)
     restore_func(0)
     for file in ignored_files:

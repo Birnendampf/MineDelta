@@ -241,30 +241,55 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         backups_data = self._load_backups_data_validate_idx(id_)
         progress(f'restoring backup "{backups_data[id_].id}"')
         backups_slice = backups_data[1 : id_ + 1]
-        with (
-            tempfile.TemporaryDirectory() as temp_dir,
-            ThreadScope(executor, "restore backup") as scope,
-        ):
+        with tempfile.TemporaryDirectory() as temp_dir:
             tasks = []
             skip: frozenset[str] = frozenset()
-            for backup in reversed(backups_slice):
-                tasks.append(
-                    scope.submit(_extract_backup, self._backup_dir, temp_dir, backup, skip)
-                )
-                skip |= backup.not_present
-            newest_backup = _extract_backup(self._backup_dir, temp_dir, backups_data[0], skip)
-            with _RegionFileCache() as region_file_cache:
-                for i, (backup_data, extract_task) in enumerate(
-                    zip(backups_slice, reversed(tasks), strict=True), 1
-                ):
-                    progress(f'[{i}/{len(backups_slice)}] applying "{backup_data.id}"')
-                    _apply_diff(
-                        dest=newest_backup, src=extract_task.result(), cache=region_file_cache
+            with ThreadScope(executor, "restore backup") as scope:
+                for backup in reversed(backups_slice):
+                    tasks.append(
+                        scope.submit(_extract_backup, self._backup_dir, temp_dir, backup, skip)
                     )
+                    skip |= backup.not_present
+                newest_backup = _extract_backup(self._backup_dir, temp_dir, backups_data[0], skip)
+                with _RegionFileCache() as region_file_cache:
+                    for i, (backup_data, task) in enumerate(
+                        zip(backups_slice, reversed(tasks), strict=True), 1
+                    ):
+                        progress(f'[{i}/{len(backups_slice)}] applying "{backup_data.id}"')
+                        _apply_diff(dest=newest_backup, src=task.result(), cache=region_file_cache)
+            # avoid moving ignored files across file system boundaries
+            # (some of it may be large, like DistantHorizons data)
             progress("deleting current world")
-            self._clear_world()
-            progress("restoring backup")
-            shutil.copytree(newest_backup, self._world, dirs_exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=Path(self._world).parent) as temp_2:
+                moved_newest = shutil.move(newest_backup, temp_2)
+                self._move_clear_world(moved_newest)
+                Path(moved_newest).replace(self._world)
+
+    def _move_clear_world(self, target: "StrPath") -> None:
+        """Like rmtree, except ignored files are moved to target."""
+        world = self._world
+        for _root, dirs, files in os.walk(world):
+            to_keep = []
+            root = Path(_root)
+            for file in files:
+                if file in BACKUP_IGNORE_FROZENSET:
+                    to_keep.append(file)
+                else:
+                    (root / file).unlink()
+            for i in reversed(range(len(dirs))):
+                dir = dirs[i]
+                if dir in BACKUP_IGNORE_FROZENSET:
+                    del dirs[i]
+                    to_keep.append(dir)
+            if to_keep:
+                target_root = target / root.relative_to(world)
+                target_root.mkdir(parents=True, exist_ok=True)
+                for name in to_keep:
+                    # FIXME: this may become a problem if new ignored files are added: the file is
+                    #  considered ignored, but the previous backup still contains it, this will fail.
+                    (root / name).replace(target_root / name)
+            if not dirs:
+                os.removedirs(root)
 
     @override
     def delete_backup(
