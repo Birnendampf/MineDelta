@@ -435,7 +435,7 @@ def _apply_diff(
                 with RegionFile(src_file) as src_region, dest_region_cm as dest_region:
                     dest_region.apply_diff(src_region, defragment)
             else:
-                shutil.copy2(src_file, dest_file)
+                src_file.replace(dest_file)
 
 
 def _should_apply_diff(src_file: Path, dest_file: Path) -> bool:
