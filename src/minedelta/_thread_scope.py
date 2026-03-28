@@ -13,7 +13,7 @@ T = TypeVar("T")
 
 def __cpu_count() -> int | None:  # pragma: no cover
     with contextlib.suppress(AttributeError):
-        return cast("int | None", os.process_cpu_count())  # type: ignore[attr-defined]
+        return cast("int | None", os.process_cpu_count())  # type: ignore[attr-defined, unused-ignore]
     # sys.version_info < 3.13
     with contextlib.suppress(AttributeError):
         return len(os.sched_getaffinity(0))

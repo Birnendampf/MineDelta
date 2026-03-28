@@ -9,6 +9,7 @@ import filecmp
 import os
 import shutil
 import sys
+import tarfile
 import tempfile
 from collections.abc import Callable, Iterable, Set
 from pathlib import Path
@@ -22,6 +23,8 @@ from minedelta.region import RegionFile
 from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, _MetaDataManager, _noop
 
 if TYPE_CHECKING:
+    import types
+
     from _typeshed import StrPath, Unused
 
 if sys.version_info >= (3, 12):  # pragma: no cover
@@ -29,14 +32,12 @@ if sys.version_info >= (3, 12):  # pragma: no cover
 else:
     from typing_extensions import override
 
-if sys.version_info >= (3, 14):  # pragma: no cover
-    import tarfile
 
-    from compression import zstd
+zstd: "types.ModuleType | None" = None
+if sys.version_info >= (3, 13):
+    with contextlib.suppress(ImportError):
+        from compression import zstd
 
-else:
-    from backports import zstd
-    from backports.zstd import tarfile
 
 __all__ = ["DiffBackupManager"]
 
@@ -48,8 +49,8 @@ class BackupData(BackupInfo):
 
     @property
     def name(self) -> str:
-        """Return the name corresponding to this backup (id + ".tar.zst")."""
-        return self.id + ".tar.zst"
+        """Return the name corresponding to this backup (id + ".bak")."""
+        return self.id + ".bak"
 
 
 def _extract_backup(
@@ -121,15 +122,19 @@ def _py_create_archive(
                 return None
             return tarinfo
 
-    with tarfile.open(
-        dest,
-        "w:zst",
-        options={
-            zstd.CompressionParameter.nb_workers: n_workers,
-            zstd.CompressionParameter.compression_level: level,
-        },
-    ) as new_tar:
-        new_tar.add(src, "", filter=_backup_filter)
+    if sys.version_info >= (3, 14) and zstd:
+        with tarfile.open(
+            dest,
+            "w:zst",
+            options={
+                zstd.CompressionParameter.nb_workers: n_workers,
+                zstd.CompressionParameter.compression_level: level,
+            },
+        ) as tar:
+            tar.add(src, "", filter=_backup_filter)
+    else:
+        with tarfile.open(dest, "w:gz") as tar:
+            tar.add(src, "", filter=_backup_filter)
 
 
 try:
