@@ -8,7 +8,7 @@
 # minedelta = { path = "../", editable = true }
 # ///
 
-"""Script to benchmark MineDelta."""
+"""Script to benchmark MineDelta. See the README next to this script for more details."""
 
 import argparse
 import base64
@@ -66,7 +66,7 @@ def main() -> None:  # noqa: D103
     run.set_defaults(func=_run)
 
     action_group = run.add_argument_group(
-        "actions", "which actions to benchmark. Performs all by default."
+        "actions", "Which actions to benchmark. Performs all by default."
     )
     for action in ("create", "restore", "delete"):
         action_group.add_argument(
@@ -96,7 +96,6 @@ def main() -> None:  # noqa: D103
         )
     args = parser.parse_args()
     _configure_logging(args)
-    _configure_tempdir(args)
     args.func(args)
 
 
@@ -132,6 +131,7 @@ class _BenchmarkResult:
 
 
 def _run(args: argparse.Namespace) -> None:
+    _configure_tempdir(args)
     capture_dir: Path = args.capture_directory.expanduser()
     actions: set[str] = set(args.action or ("create", "restore", "delete"))
     managers: set[type[backup.BaseBackupManager[Any]]] = set(
@@ -149,14 +149,15 @@ def _run(args: argparse.Namespace) -> None:
     for manager, result in results.items():
         print(manager)
         for action in sorted(actions):
-            times = getattr(result, action + "_times")
+            times: list[int] = getattr(result, action + "_times")
             print(
                 f"  {action}: {sum(times) / len(times) / 10**9:.3f}s",
                 "(raw):",
                 "[" + ", ".join(f"{t:_}" for t in times) + "]",
             )
         print(
-            f"  size: {result.backup_size / 2**20:.0f}MiB. ({1 - (result.backup_size / raw_size):.1%} reduction)"
+            f"  size: {result.backup_size / 2**20:.0f}MiB. "
+            f"({1 - (result.backup_size / raw_size):.1%} reduction)"
         )
 
 
@@ -331,8 +332,8 @@ def _configure_tempdir(args: argparse.Namespace) -> None:
         tempfile.tempdir = args.temp_dir
     elif os.name == "nt" or not Path(tempfile.gettempdir()).is_mount():
         logger.warning(
-            "No temporary directory specified. "
-            f"Results may be inconsistent unless '{tempfile.gettempdir()}' is on a tmpfs or ramdisk"
+            "No temporary directory specified! Results may be inconsistent unless "
+            f"'{tempfile.gettempdir()}' is on a tmpfs or ramdisk."
         )
 
 
