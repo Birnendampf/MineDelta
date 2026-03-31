@@ -46,8 +46,13 @@ uv run bench.py -t /your/tmpfs [ARGS...]
 
 ## Creating test data
 
+The benchmark does not come bundled with test data as minecraft worlds cannot nicely be stored in
+git: Minecraft worlds consist of many 1-10MB binary files, making them too small and numerous for
+Git LFS but too large to be comfortably stored in a Repo (GitHub has a 10GiB size limit by default,
+the data used to obtain the results in this file amounts to 8.6GB)
+
 1. choose or create a minecraft world to test the performance with. The test data below used
-   the [Hermitcraft Season 10 World](https://r2.hermitcraft.com/hermitcraft10.zip)
+   the [Hermitcraft Season 10 World](https://r2.hermitcraft.com/hermitcraft10.zip) with 6 captures.
 2. create a capture of it:
    ```shell
     uv run bench.py capture /path/to/world
