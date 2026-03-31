@@ -9,6 +9,7 @@ import filecmp
 import os
 import shutil
 import sys
+import tarfile
 import tempfile
 from collections.abc import Callable, Iterable, Set
 from pathlib import Path
@@ -22,6 +23,8 @@ from minedelta.region import RegionFile
 from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, _MetaDataManager, _noop
 
 if TYPE_CHECKING:
+    import types
+
     from _typeshed import StrPath, Unused
 
 if sys.version_info >= (3, 12):  # pragma: no cover
@@ -29,14 +32,12 @@ if sys.version_info >= (3, 12):  # pragma: no cover
 else:
     from typing_extensions import override
 
-if sys.version_info >= (3, 14):  # pragma: no cover
-    import tarfile
 
-    from compression import zstd
+zstd: "types.ModuleType | None" = None
+if sys.version_info >= (3, 13):  # pragma: no cover
+    with contextlib.suppress(ImportError):
+        from compression import zstd
 
-else:
-    from backports import zstd
-    from backports.zstd import tarfile
 
 __all__ = ["DiffBackupManager"]
 
@@ -48,8 +49,8 @@ class BackupData(BackupInfo):
 
     @property
     def name(self) -> str:
-        """Return the name corresponding to this backup (id + ".tar.zst")."""
-        return self.id + ".tar.zst"
+        """Return the name corresponding to this backup (id + ".bak")."""
+        return self.id + ".bak"
 
 
 def _extract_backup(
@@ -73,7 +74,10 @@ def _extract_backup(
     src = backup_dir / backup_data.name
     try:
         __extract(src, extracted, skip)
-    except OSError:  # maybe some other compression method?
+    except OSError:
+        if __extract is _py_extract:
+            raise
+        # maybe some other compression method?
         extracted = Path(temp_dir, "fallback_" + backup_data.id)
         _py_extract(src, extracted, skip)
     return extracted
@@ -82,7 +86,7 @@ def _extract_backup(
 def _py_extract(
     src: "StrPath", dest: "StrPath", exclude: Iterable["StrPath"] | None = None
 ) -> None:
-    skip = [os.fspath(file) for file in exclude or ()]
+    skip = {os.fspath(file) for file in exclude or ()}
     if skip:
         skipped_dirs = []
 
@@ -103,9 +107,9 @@ def _py_extract(
 def _py_create_archive(
     src: "StrPath",
     dest: "StrPath",
-    exclude: Set[str] = frozenset(),
     n_workers: int = 0,
     level: int = 0,
+    exclude: Set[str] = frozenset(),
 ) -> None:
     if not exclude:
         _backup_filter = None
@@ -118,15 +122,19 @@ def _py_create_archive(
                 return None
             return tarinfo
 
-    with tarfile.open(
-        dest,
-        "w:zst",
-        options={
-            zstd.CompressionParameter.nb_workers: n_workers,
-            zstd.CompressionParameter.compression_level: level,
-        },
-    ) as new_tar:
-        new_tar.add(src, "", filter=_backup_filter)
+    if sys.version_info >= (3, 14) and zstd:  # pragma: no cover
+        with tarfile.open(
+            dest,
+            "w:zst",
+            options={
+                zstd.CompressionParameter.nb_workers: n_workers,
+                zstd.CompressionParameter.compression_level: level,
+            },
+        ) as tar:
+            tar.add(src, "", filter=_backup_filter)
+    else:
+        with tarfile.open(dest, "w:gz") as tar:
+            tar.add(src, "", filter=_backup_filter)
 
 
 try:
@@ -211,8 +219,8 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                         _create_archive(
                             prev_world,
                             new_previous,
-                            n_workers=self._zstd_workers,
-                            level=self._zstd_level,
+                            self._zstd_workers,
+                            self._zstd_level,
                         )
                         # ensure backup creation went well before overwriting prev
                 progress("compressing world")
@@ -225,7 +233,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
 
     def _compress_world(self, dest: Path) -> None:
         _create_archive(
-            self._world, dest, BACKUP_IGNORE_FROZENSET, self._zstd_workers, self._zstd_level
+            self._world, dest, self._zstd_workers, self._zstd_level, BACKUP_IGNORE_FROZENSET
         )
 
     @override
@@ -238,30 +246,55 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         backups_data = self._load_backups_data_validate_idx(id_)
         progress(f'restoring backup "{backups_data[id_].id}"')
         backups_slice = backups_data[1 : id_ + 1]
-        with (
-            tempfile.TemporaryDirectory() as temp_dir,
-            ThreadScope(executor, "restore backup") as scope,
-        ):
+        with tempfile.TemporaryDirectory() as temp_dir:
             tasks = []
             skip: frozenset[str] = frozenset()
-            for backup in reversed(backups_slice):
-                tasks.append(
-                    scope.submit(_extract_backup, self._backup_dir, temp_dir, backup, skip)
-                )
-                skip |= backup.not_present
-            newest_backup = _extract_backup(self._backup_dir, temp_dir, backups_data[0], skip)
-            with _RegionFileCache() as region_file_cache:
-                for i, (backup_data, extract_task) in enumerate(
-                    zip(backups_slice, reversed(tasks), strict=True), 1
-                ):
-                    progress(f'[{i}/{len(backups_slice)}] applying "{backup_data.id}"')
-                    _apply_diff(
-                        dest=newest_backup, src=extract_task.result(), cache=region_file_cache
+            with ThreadScope(executor, "restore backup") as scope:
+                for backup in reversed(backups_slice):
+                    tasks.append(
+                        scope.submit(_extract_backup, self._backup_dir, temp_dir, backup, skip)
                     )
+                    skip |= backup.not_present
+                newest_backup = _extract_backup(self._backup_dir, temp_dir, backups_data[0], skip)
+                with _RegionFileCache() as region_file_cache:
+                    for i, (backup_data, task) in enumerate(
+                        zip(backups_slice, reversed(tasks), strict=True), 1
+                    ):
+                        progress(f'[{i}/{len(backups_slice)}] applying "{backup_data.id}"')
+                        _apply_diff(dest=newest_backup, src=task.result(), cache=region_file_cache)
+            # avoid moving ignored files across file system boundaries
+            # (some of it may be large, like DistantHorizons data)
             progress("deleting current world")
-            self._clear_world()
-            progress("restoring backup")
-            shutil.copytree(newest_backup, self._world, dirs_exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=Path(self._world).parent) as temp_2:
+                moved_newest = shutil.move(newest_backup, temp_2)
+                self._move_clear_world(moved_newest)
+                Path(moved_newest).replace(self._world)
+
+    def _move_clear_world(self, target: "StrPath") -> None:
+        """Like rmtree, except ignored files are moved to target."""
+        world = self._world
+        for _root, dirs, files in os.walk(world):
+            to_keep = []
+            root = Path(_root)
+            for file in files:
+                if file in BACKUP_IGNORE_FROZENSET:
+                    to_keep.append(file)
+                else:
+                    (root / file).unlink()
+            for i in reversed(range(len(dirs))):
+                dir = dirs[i]
+                if dir in BACKUP_IGNORE_FROZENSET:
+                    del dirs[i]
+                    to_keep.append(dir)
+            if to_keep:
+                target_root = target / root.relative_to(world)
+                target_root.mkdir(parents=True, exist_ok=True)
+                for name in to_keep:
+                    # FIXME: this may become a problem if new ignored files are added: the file is
+                    #  considered ignored, but the previous backup still contains it, this will fail.
+                    (root / name).replace(target_root / name)
+            if not dirs:
+                os.removedirs(root)
 
     @override
     def delete_backup(
@@ -282,33 +315,28 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
         data_chosen = backups_data[id_]
         chosen_not_present = data_chosen.not_present.copy()
         progress(f'merging "{data_older.id}" into "{data_chosen.id}"')
-        older_archive = self._backup_dir / data_older.name
-        with (
-            tempfile.TemporaryDirectory() as temp_dir,
-            ThreadScope(executor, "delete backup") as scope,
-        ):
-            chosen_fut = scope.submit(
-                _extract_backup,
-                self._backup_dir,
-                temp_dir,
-                data_chosen,
-                data_older.not_present,
-            )
-            older = _extract_backup(self._backup_dir, temp_dir, data_older)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with ThreadScope(executor, "delete backup") as scope:
+                chosen_fut = scope.submit(
+                    _extract_backup, self._backup_dir, temp_dir, data_chosen, data_older.not_present
+                )
+                older = _extract_backup(self._backup_dir, temp_dir, data_older)
             chosen = chosen_fut.result()
-            _apply_diff(src=older, dest=chosen, defragment=True)
             # handle the following situation (1 being deleted):
             # idx | files | diff | new diff
             # 0   | a0    |      |
             # 1   |       | -a   | a0
             # 2   | a0    | a0   | (deleted)
             for file in data_chosen.not_present:
-                if Path(older, file).exists():
+                if (older / file).exists():
                     chosen_not_present.discard(file)
+
+            _apply_diff(src=older, dest=chosen, defragment=True)
             progress(f'recompressing "{data_chosen.id}" as "{data_older.name}"')
-            _create_archive(
-                chosen, older_archive, n_workers=self._zstd_workers, level=self._zstd_level
-            )
+            with tempfile.TemporaryDirectory(dir=self._backup_dir) as temp_2:
+                new_older = Path(temp_2, data_older.name)
+                _create_archive(chosen, new_older, self._zstd_workers, self._zstd_level)
+                new_older.replace(self._backup_dir / data_older.name)
         if id_:
             # handle the following situation (1 being deleted):
             # idx | files       | diff              | new diff
@@ -437,7 +465,7 @@ def _apply_diff(
                 with RegionFile(src_file) as src_region, dest_region_cm as dest_region:
                     dest_region.apply_diff(src_region, defragment)
             else:
-                shutil.copy2(src_file, dest_file)
+                src_file.replace(dest_file)
 
 
 def _should_apply_diff(src_file: Path, dest_file: Path) -> bool:

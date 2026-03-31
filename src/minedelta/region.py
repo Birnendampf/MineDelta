@@ -16,8 +16,6 @@ from typing import TYPE_CHECKING, ClassVar, Final, Literal, NamedTuple, Self
 from .nbt import compare_nbt, compare_nbt_files
 
 if TYPE_CHECKING:
-    import io
-
     from _typeshed import ReadableBuffer, StrPath, Unused, WriteableBuffer
 
 __all__ = [
@@ -171,7 +169,7 @@ class RegionFile:
     This class can be used as a reusable context manager,
     """
 
-    __slots__ = ("_file_obj", "_headers", "_headers_changed", "_mmap", "_path", "_region_pos")
+    __slots__ = ("_headers", "_headers_changed", "_mmap", "_path", "_region_pos")
 
     _chunk_heading_struct: Final = struct.Struct("!iB")
 
@@ -187,7 +185,6 @@ class RegionFile:
         self._mmap: mmap.mmap
         self._headers: list[ChunkHeader] = []
         self._headers_changed = False
-        self._file_obj: io.FileIO
         self._region_pos: tuple[int, int]
 
     def __enter__(self) -> Self:
@@ -202,25 +199,20 @@ class RegionFile:
         """
         if hasattr(self, "_mmap"):
             raise RuntimeError("Already loaded")
-        self._file_obj = open(self._path, "r+b", 0)
         try:
-            try:
-                self._mmap = mmap.mmap(self._file_obj.fileno(), 0, access=mmap.ACCESS_WRITE)
-            except ValueError as e:
-                raise EmptyRegionError from e
-            if not self._headers:
-                self.load_headers()
-        except Exception:
-            self._file_obj.close()
-            raise
+            with open(self._path, "r+b", 0) as f:
+                self._mmap = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_WRITE)
+        except ValueError as e:
+            raise EmptyRegionError from e
+        if not self._headers:
+            self.load_headers()
         return self
 
     def __exit__(self, *_: "Unused") -> None:
         """Write chunk headers back to the file and release the mapping."""
         self.dump_headers()
         self._mmap.close()
-        self._file_obj.close()
-        del self._mmap, self._file_obj
+        del self._mmap
 
     def __len__(self) -> int:
         """The length of the region file."""
