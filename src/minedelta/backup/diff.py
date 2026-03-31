@@ -34,7 +34,7 @@ else:
 
 
 zstd: "types.ModuleType | None" = None
-if sys.version_info >= (3, 13):
+if sys.version_info >= (3, 13):  # pragma: no cover
     with contextlib.suppress(ImportError):
         from compression import zstd
 
@@ -122,7 +122,7 @@ def _py_create_archive(
                 return None
             return tarinfo
 
-    if sys.version_info >= (3, 14) and zstd:
+    if sys.version_info >= (3, 14) and zstd:  # pragma: no cover
         with tarfile.open(
             dest,
             "w:zst",
