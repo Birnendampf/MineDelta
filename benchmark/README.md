@@ -85,3 +85,36 @@ uv run bench.py -vt /mnt/tmpfs run -cr --df --hl
 ```
 
 If no options after `run` are specified, all operations will be ran for all managers.
+
+# Results
+
+Note that these are almost impossible to reproduce. varying factors (parameters used for these
+results in parentheses):
+
+- CPU model (Ryzen 7800X3D)
+- OS, even kernel version and distro (Linux Mint 22.3, 6.8.0-106-generic)
+- Memory size, speed and latency (2x 16GB, 5600MT, CL 30-36-36-88)
+
+| Raw data (in s)              |  Diff | Hardlink |    Git |
+|:-----------------------------|------:|---------:|-------:|
+| create first                 | 2.382 |    0.550 | 22.893 |
+| create average without first | 2.649 |    0.167 |  4.540 |
+| delete oldest                | 0.002 |    0.037 | 11.318 |
+| delete newest                | 3.631 |    0.033 | 10.118 |
+| restore average              | 0.989 |    0.688 |  7.443 |
+| backup size (MiB)            | 1 231 |    2 498 |  2 241 |
+
+![operations](operations.svg)
+![sizes](size.svg)
+
+As can be seen, the Diff backup manager achieves the best size reduction (as the only manager
+operating on a per-chunk level) while being reasonably fast.  
+If all you care about is speed, Hardlink backup manager is for you.
+
+Git backup manager is more of a proof of concept, it is the slowest while achieving only a mediocre
+size reduction. Part of the reason is that garbage collection is disabled during benchmarks. This is
+because Dulwich's GC operation doesn't actually reduce the size for whatever reason, so it is
+basically just a waste of time.  
+Apart from that, dulwich is a git _rewrite_ in Python, so it is
+naturally slower than its C counterpart. Using GitPython (a _wrapper_ arond the git binary) would
+fix that, but introduce an external dependency on git
