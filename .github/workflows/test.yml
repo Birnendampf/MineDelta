@@ -15,14 +15,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: run ruff check
+        uses: astral-sh/ruff-action@v3
+      - name: run ruff format
+        run: ruff format --check
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version-file: .python-version
       - uses: astral-sh/setup-uv@v7
-      - name: run ruff
-        run: uv run --only-group lint ruff check --output-format=github
       - name: run mypy
         run: uv run --only-group lint mypy
+
 
   test:
     name: Test
@@ -30,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ ubuntu-latest, windows-latest ]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
