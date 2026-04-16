@@ -29,7 +29,11 @@ jobs:
         with:
           python-version-file: .python-version
       - uses: astral-sh/setup-uv@v7
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: run mypy
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
         run: uv run --only-group lint mypy
 
 
@@ -46,7 +50,11 @@ jobs:
         with:
           python-version-file: .python-version
       - uses: astral-sh/setup-uv@v7
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: run pytest
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
         run: >
           uv run --only-group test pytest -Werror -n auto
           ${{ matrix.os == 'ubuntu-latest' && '--cov --cov-report=xml' || '' }}
