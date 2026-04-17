@@ -58,11 +58,13 @@ class TestRegionFile:
 
         with mca_file.open("wb") as f:
             f.truncate(4096)
+        region_file = region.RegionFile(mca_file)
         with (
             pytest.raises(region.RegionLoadingError, match="Chunk headers appear truncated"),
-            region.RegionFile(mca_file),
+            region_file,
         ):
             ...
+        assert not hasattr(region_file, "_mmap") or region_file._mmap.closed
 
     def test_headers_empty(self, bare_region_file: Path) -> None:
         with region.RegionFile(bare_region_file) as r, pytest.raises(RuntimeError), r:
