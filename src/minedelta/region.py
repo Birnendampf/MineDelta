@@ -32,7 +32,7 @@ __all__ = [
 DECOMP_LUT: Final[dict[int, Callable[["ReadableBuffer"], bytes]]] = {3: bytes}
 """chunk compression schemes according to https://minecraft.wiki/w/Region_file_format#Payload
 
-Special compression values::
+Special compression values:
   - 127: Custom compression algorithm (unsupported)
   - x + 128: the compressed data is saved in a file called c.x.z.mcc, where x and z are the chunk's
     coordinates, instead of the usual position. This is handled by the nbt module.
@@ -204,8 +204,13 @@ class RegionFile:
                 self._mmap = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_WRITE)
         except ValueError as e:
             raise EmptyRegionError from e
-        if not self._headers:
-            self.load_headers()
+        try:
+            if not self._headers:
+                self.load_headers()
+        except Exception:
+            self._mmap.close()
+            del self._mmap
+            raise
         return self
 
     def __exit__(self, *_: "Unused") -> None:
@@ -238,7 +243,7 @@ class RegionFile:
 
     def get_mcc(self, idx: int) -> Path:
         """Get the mcc file for the given header index."""
-        path = Path(self._path)
+        path = Path(self._path) if not isinstance(self._path, Path) else self._path
         if hasattr(self, "_region_pos"):
             region_x, region_z = self._region_pos
         else:
