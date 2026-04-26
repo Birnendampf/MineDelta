@@ -294,13 +294,13 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 target_root = target / root.relative_to(world)
                 target_root.mkdir(parents=True, exist_ok=True)
                 for name in to_keep:
-                    file = root / name
+                    file_path = root / name
                     target_file = target_root / name
                     try:
-                        file.replace(target_file)
+                        file_path.replace(target_file)
                     except OSError:
                         delete_file_or_dir(target_file)
-                        file.replace(target_file)
+                        file_path.replace(target_file)
             if not dirs:
                 os.removedirs(root)
 
