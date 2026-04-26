@@ -67,7 +67,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger("bench")
 
 
-def main() -> None:  # noqa: D103
+def main() -> None:
+    """Only configures the argument parser. All logic is contained in _run() and _diff_variations()."""
     parser = argparse.ArgumentParser(description="Benchmark minedelta")
     parser.add_argument(
         "-C",
@@ -97,9 +98,7 @@ def main() -> None:  # noqa: D103
     run_help = "Run a benchmark"
     run = sub.add_parser("run", help=run_help, description=run_help)
     run.set_defaults(func=_run)
-
     _add_actions(run)
-
     manager_group = run.add_argument_group(
         "managers", "Which manager to benchmark. Defaults to all if not specified."
     )
@@ -117,11 +116,11 @@ def main() -> None:  # noqa: D103
             help=((manager.__doc__ or "").splitlines()[0]),
         )
 
-    d_v_help = "Compare DiffBackupManager configurations"
+    diff_variations_help = "Compare DiffBackupManager configurations"
     diff_variations = sub.add_parser(
         "diff-variations",
-        help=d_v_help,
-        description=d_v_help
+        help=diff_variations_help,
+        description=diff_variations_help
         + ". Options can have multiple arguments (like --zstd-lvl 1 2 3), in which case every"
         + " possible combination will be run",
     )
@@ -162,7 +161,6 @@ def main() -> None:  # noqa: D103
         executor_group.add_argument(
             f"--{name}", action="append_const", const=executor, dest="executors", help=help_text
         )
-
     parser_group = diff_variations.add_argument_group(
         "parser implementation", "Nbtcompare is used by default."
     )
@@ -195,6 +193,7 @@ def main() -> None:  # noqa: D103
 
 
 def _add_actions(parser: argparse.ArgumentParser) -> None:
+    """Add the 'create', 'restore' and 'delete' arguments to a parser."""
     action_group = parser.add_argument_group(
         "actions", "Which actions to benchmark. Performs all by default."
     )
@@ -210,6 +209,7 @@ def _add_actions(parser: argparse.ArgumentParser) -> None:
 
 
 def _capture(args: argparse.Namespace) -> None:
+    """Capture the current state of a minecraft world."""
     world: Path = args.world.expanduser()
     capture_directory: Path = args.capture_directory.expanduser()
     existing_count = 0
@@ -224,7 +224,7 @@ def _capture(args: argparse.Namespace) -> None:
     new_capture = capture_directory / str(existing_count)
     logger.info("Creating snapshot...")
     shutil.copytree(world, new_capture)
-    get_fingerprint.cache_clear()
+    _get_fingerprint.cache_clear()
     if args.verbose:
         logger.debug(f"Finished ({du(new_capture) // 2**20}MiB)")
 
@@ -246,6 +246,7 @@ class _BenchmarkResult:
 
 
 def _run(args: argparse.Namespace) -> None:
+    """Run the standard benchmarking suite."""
     _configure_tempdir(args)
     captures = _sorted_captures(args.capture_directory)
     actions: set[str] = set(args.actions or ("create", "restore", "delete"))
@@ -260,25 +261,8 @@ def _run(args: argparse.Namespace) -> None:
     _print_results(actions, captures, results)
 
 
-def _print_results(
-    actions: set[str], captures: list[Path], results: dict[str, _BenchmarkResult]
-) -> None:
-    raw_size = sum(du(capture) for capture in captures)
-    for manager, result in results.items():
-        print(manager)
-        for action in sorted(actions):
-            times: list[int] = getattr(result, action + "_times")
-            print(
-                f"  {action}: {sum(times) / len(times) / 10**9:.3f}s",
-                "(raw data: [" + ", ".join(f"{t:_}" for t in times) + "])",
-            )
-        print(
-            f"  size: {result.backup_size / 2**20:.0f}MiB. "
-            f"({1 - (result.backup_size / raw_size):.1%} reduction)"
-        )
-
-
 def _diff_variations(args: argparse.Namespace) -> None:
+    """Benchmark variations of DiffBackupManager."""
     _configure_tempdir(args)
     captures = _sorted_captures(args.capture_directory)
     actions: set[str] = set(args.actions or ("create", "restore", "delete"))
@@ -337,6 +321,24 @@ def _diff_variations(args: argparse.Namespace) -> None:
     _print_results(actions, captures, results)
 
 
+def _print_results(
+    actions: set[str], captures: list[Path], results: dict[str, _BenchmarkResult]
+) -> None:
+    raw_size = sum(du(capture) for capture in captures)
+    for manager, result in results.items():
+        print(manager)
+        for action in sorted(actions):
+            times: list[int] = getattr(result, action + "_times")
+            print(
+                f"  {action}: {sum(times) / len(times) / 10**9:.3f}s",
+                "(raw data: [" + ", ".join(f"{t:_}" for t in times) + "])",
+            )
+        print(
+            f"  size: {result.backup_size / 2**20:.0f}MiB. "
+            f"({1 - (result.backup_size / raw_size):.1%} reduction)"
+        )
+
+
 def _select_configurations(configurations: list["ConfigurationType"]) -> list["ConfigurationType"]:
     """Allows adjusting the selected configurations in an interactive way."""
     selection = [True] * len(configurations)
@@ -361,7 +363,6 @@ def _select_configurations(configurations: list["ConfigurationType"]) -> list["C
         print(f"\033[{len(selection)}F", end="", flush=True)
         print_configs()
     print("Deselected:", " ".join(str(i) for i, selected in enumerate(selection) if not selected))
-
     return [config for selected, config in zip(selection, configurations, strict=True) if selected]
 
 
@@ -386,36 +387,6 @@ def _parse_func_to_str(parse_func: "_CompareFunc") -> str:
         if parse_func is nbt.compare_nbt
         else "rapidnbt"
     )
-
-
-def _rapidnbt_compare_nbt(left: bytes, right: bytes, exclude_last_update: bool = False) -> bool:
-    left_compound = rapidnbt.nbtio.loads(left, rapidnbt.NbtFileFormat.BIG_ENDIAN)
-    right_compound = rapidnbt.nbtio.loads(right, rapidnbt.NbtFileFormat.BIG_ENDIAN)
-    return _do_compare(left_compound, right_compound, exclude_last_update)
-
-
-def _rapidnbt_compare_nbt_files(
-    left: "StrPath",
-    _left_comp_type: int,
-    right: "StrPath",
-    _right_comp_type: int,
-    exclude_last_update: bool = False,
-) -> bool:
-    left_compound = rapidnbt.nbtio.load(left, rapidnbt.NbtFileFormat.BIG_ENDIAN)  # type: ignore[arg-type]
-    right_compound = rapidnbt.nbtio.load(right, rapidnbt.NbtFileFormat.BIG_ENDIAN)  # type: ignore[arg-type]
-    return _do_compare(left_compound, right_compound, exclude_last_update)
-
-
-def _do_compare(
-    left_compound: rapidnbt.CompoundTag | None,
-    right_compound: rapidnbt.CompoundTag | None,
-    exclude_last_update: bool,
-) -> bool:
-    if left_compound is None or right_compound is None:
-        raise RuntimeError("parse failure")
-    if exclude_last_update:
-        del left_compound["LastUpdate"], right_compound["LastUpdate"]
-    return left_compound == right_compound
 
 
 # noinspection PyProtectedMember,PyTypeChecker
@@ -559,6 +530,19 @@ def _benchmark_delete(
     return delete_times
 
 
+class _ProgressAdapter(logging.LoggerAdapter[logging.Logger]):
+    def __init__(self, manager_name: str):
+        self.manager_name = manager_name
+        super().__init__(logger)
+
+    def process(
+        self,
+        msg: Any,  # noqa: ANN401
+        kwargs: MutableMapping[str, Any],
+    ) -> tuple[str, MutableMapping[str, Any]]:
+        return f"({self.manager_name}) {msg}", kwargs
+
+
 def _configure_logging(args: argparse.Namespace) -> None:
     if args.quiet:
         level = logging.WARNING
@@ -573,19 +557,6 @@ def _configure_logging(args: argparse.Namespace) -> None:
     )
     if args.verbose == 1:
         logger.setLevel(level=logging.DEBUG)
-
-
-class _ProgressAdapter(logging.LoggerAdapter[logging.Logger]):
-    def __init__(self, manager_name: str):
-        self.manager_name = manager_name
-        super().__init__(logger)
-
-    def process(
-        self,
-        msg: Any,  # noqa: ANN401
-        kwargs: MutableMapping[str, Any],
-    ) -> tuple[str, MutableMapping[str, Any]]:
-        return f"({self.manager_name}) {msg}", kwargs
 
 
 def _configure_tempdir(args: argparse.Namespace) -> None:
@@ -632,8 +603,34 @@ def du(path: "StrPath") -> int:
 _pack_signature = struct.Struct(">HQQ").pack
 
 
+def _get_cache(manager_name: str, capture_dir: Path) -> Path | None:
+    cache = capture_dir / ".cache"
+    if not cache.is_dir():
+        return None
+    candidates = list(cache.glob(manager_name + "_*"))
+    if not candidates:
+        return None
+    fingerprint = _get_fingerprint(capture_dir)
+    chosen = None
+    for candidate in candidates:
+        if candidate.name == f"{manager_name}_{fingerprint}":
+            chosen = candidate
+        else:
+            shutil.rmtree(candidate)
+    return chosen
+
+
+def _set_cache(manager: backup.BaseBackupManager[Any], capture_dir: Path) -> None:
+    cache_dir = capture_dir / ".cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    fingerprint = _get_fingerprint(capture_dir)
+    new_cache_entry = cache_dir / f"{type(manager).__name__}_{fingerprint}"
+    backup.base.delete_file_or_dir(new_cache_entry)
+    shutil.copytree(manager.backup_dir, new_cache_entry)
+
+
 @functools.cache
-def get_fingerprint(path: Path) -> str:
+def _get_fingerprint(path: Path) -> str:
     """Recursively hash the path, type, size and mtime of all captures."""
     hasher = hashlib.sha1(usedforsecurity=False)  # faster than md5 on most CPUs
     for capture in _sorted_captures(path):
@@ -649,30 +646,34 @@ def get_fingerprint(path: Path) -> str:
     return base64.urlsafe_b64encode(hasher.digest())[:-1].decode("ascii")
 
 
-def _get_cache(manager_name: str, capture_dir: Path) -> Path | None:
-    cache = capture_dir / ".cache"
-    if not cache.is_dir():
-        return None
-    candidates = list(cache.glob(manager_name + "_*"))
-    if not candidates:
-        return None
-    fingerprint = get_fingerprint(capture_dir)
-    chosen = None
-    for candidate in candidates:
-        if candidate.name == f"{manager_name}_{fingerprint}":
-            chosen = candidate
-        else:
-            shutil.rmtree(candidate)
-    return chosen
+def _rapidnbt_compare_nbt(left: bytes, right: bytes, exclude_last_update: bool = False) -> bool:
+    left_compound = rapidnbt.nbtio.loads(left, rapidnbt.NbtFileFormat.BIG_ENDIAN)
+    right_compound = rapidnbt.nbtio.loads(right, rapidnbt.NbtFileFormat.BIG_ENDIAN)
+    return _do_compare(left_compound, right_compound, exclude_last_update)
 
 
-def _set_cache(manager: backup.BaseBackupManager[Any], capture_dir: Path) -> None:
-    cache_dir = capture_dir / ".cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    fingerprint = get_fingerprint(capture_dir)
-    new_cache_entry = cache_dir / f"{type(manager).__name__}_{fingerprint}"
-    backup.base.delete_file_or_dir(new_cache_entry)
-    shutil.copytree(manager.backup_dir, new_cache_entry)
+def _rapidnbt_compare_nbt_files(
+    left: "StrPath",
+    _left_comp_type: int,
+    right: "StrPath",
+    _right_comp_type: int,
+    exclude_last_update: bool = False,
+) -> bool:
+    left_compound = rapidnbt.nbtio.load(left, rapidnbt.NbtFileFormat.BIG_ENDIAN)  # type: ignore[arg-type]
+    right_compound = rapidnbt.nbtio.load(right, rapidnbt.NbtFileFormat.BIG_ENDIAN)  # type: ignore[arg-type]
+    return _do_compare(left_compound, right_compound, exclude_last_update)
+
+
+def _do_compare(
+    left_compound: rapidnbt.CompoundTag | None,
+    right_compound: rapidnbt.CompoundTag | None,
+    exclude_last_update: bool,
+) -> bool:
+    if left_compound is None or right_compound is None:
+        raise RuntimeError("parse failure")
+    if exclude_last_update:
+        del left_compound["LastUpdate"], right_compound["LastUpdate"]
+    return left_compound == right_compound
 
 
 if __name__ == "__main__":
