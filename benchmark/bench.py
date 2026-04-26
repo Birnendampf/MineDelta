@@ -16,6 +16,7 @@ import base64
 import concurrent.futures
 import contextlib
 import dataclasses
+import functools
 import gc
 import hashlib
 import itertools
@@ -217,7 +218,8 @@ def _capture(args: argparse.Namespace) -> None:
     new_capture = capture_directory / str(existing_count)
     logger.info("Creating snapshot...")
     shutil.copytree(world, new_capture)
-    if logger.isEnabledFor(logging.DEBUG):
+    get_fingerprint.cache_clear()
+    if args.verbose:
         logger.debug(f"Finished ({du(new_capture) // 2**20}MiB)")
 
 
@@ -393,7 +395,6 @@ def _benchmark_manager(  # noqa: PLR0913
     result = _BenchmarkResult()
     manager_name = manager_type.__name__
     progress = _ProgressAdapter(manager_name[:-13]).debug if verbose else backup.base._noop
-    cache = None
     capture_dir = captures[0].parent
     # hardlinks are not preserved in copies so it wastes a LOT of disk space
     # + HardlinkBackupManager is fast enough to not need caching
@@ -410,8 +411,8 @@ def _benchmark_manager(  # noqa: PLR0913
         manager = manager_type(world, backup_dir, **constructor_args)
         gc.disable()
         try:
+            cache = _get_cache(manager_name, capture_dir)
             if "create" not in actions:
-                cache = _get_cache(manager_name, capture_dir)
                 if cache:
                     logger.debug(f"Found cached manager: {cache.name}")
                     shutil.copytree(cache, backup_dir)
@@ -591,10 +592,10 @@ def du(path: "StrPath") -> int:
 
 
 # file type, size and mtime
-_fingerprint_struct = struct.Struct(">HQQ")
-_FINGERPRINT = ""
+_pack_signature = struct.Struct(">HQQ").pack
 
 
+@functools.cache
 def get_fingerprint(path: Path) -> str:
     """Recursively hash the path, type, size and mtime of all captures."""
     hasher = hashlib.sha1(usedforsecurity=False)  # faster than md5 on most CPUs
@@ -604,29 +605,24 @@ def get_fingerprint(path: Path) -> str:
             rel_root = os.path.relpath(root, capture)
             for file_name in sorted(files):
                 # ruff: disable[PTH118, PTH116] hot code path, no pathlib here
-                file = os.path.join(root, file_name)
-                hasher.update(os.path.join(rel_root, file_name).encode())
-                st = os.stat(file)
-                hasher.update(
-                    _fingerprint_struct.pack(stat.S_IFMT(st.st_mode), st.st_size, st.st_mtime_ns)
-                )
+                hasher.update(os.fsencode(os.path.join(rel_root, file_name)))
+                st = os.stat(os.path.join(root, file_name))
+                hasher.update(_pack_signature(stat.S_IFMT(st.st_mode), st.st_size, st.st_mtime_ns))
                 # ruff: enable[PTH118, PTH116]
     return base64.urlsafe_b64encode(hasher.digest())[:-1].decode("ascii")
 
 
 def _get_cache(manager_name: str, capture_dir: Path) -> Path | None:
-    global _FINGERPRINT  # noqa: PLW0603
     cache = capture_dir / ".cache"
     if not cache.is_dir():
         return None
     candidates = list(cache.glob(manager_name + "_*"))
     if not candidates:
         return None
-    if not _FINGERPRINT:
-        _FINGERPRINT = get_fingerprint(capture_dir)
+    fingerprint = get_fingerprint(capture_dir)
     chosen = None
     for candidate in candidates:
-        if candidate.name == f"{manager_name}_{_FINGERPRINT}":
+        if candidate.name == f"{manager_name}_{fingerprint}":
             chosen = candidate
         else:
             shutil.rmtree(candidate)
