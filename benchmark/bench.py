@@ -126,6 +126,12 @@ def main() -> None:  # noqa: D103
         + " possible combination will be run",
     )
     diff_variations.set_defaults(func=_diff_variations)
+    diff_variations.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help="Interactively deselect unneeded configurations.",
+    )
     _add_actions(diff_variations)
     zstd_group = diff_variations.add_argument_group("zstandard options")
     zstd_group.add_argument(
@@ -301,7 +307,10 @@ def _diff_variations(args: argparse.Namespace) -> None:
     configurations = sorted(
         unsorted_configs, key=lambda c: (*c[:3], c[3].__name__, _parse_func_to_str(c[4][0]))
     )
-    logger.debug("\n  ".join(("Configurations:", *(_conf_to_str(c) for c in configurations))))
+    if not args.interactive:
+        logger.debug("\n  ".join(("Configurations:", *(_conf_to_str(c) for c in configurations))))
+    else:
+        configurations = _select_configurations(configurations)
     results = {}
     for config in configurations:
         zstd_lvl, zstd_threads, workers, ex_type, parser = config
@@ -326,6 +335,34 @@ def _diff_variations(args: argparse.Namespace) -> None:
                 {"executor": executor},
             )
     _print_results(actions, captures, results)
+
+
+def _select_configurations(configurations: list["ConfigurationType"]) -> list["ConfigurationType"]:
+    """Allows adjusting the selected configurations in an interactive way."""
+    selection = [True] * len(configurations)
+
+    def print_configs() -> None:
+        for i, (selected, config) in enumerate(zip(selection, configurations, strict=True)):
+            if selected:
+                print(f"{i:2} [X]: {_conf_to_str(config)}")
+            else:
+                print(f"\033[2m{i:2} [ ]: {_conf_to_str(config)}\033[0m")
+
+    print("specify ranges like X-Y, multiple values like X Y")
+    print_configs()
+    while reply := input("Toggle configuration(s) to benchmark. Press enter to continue: "):
+        print("\033[1F\033[K", end="", flush=True)
+        for idx_str in reply.split():
+            start, _, end = idx_str.partition("-")
+            with contextlib.suppress(IndexError, ValueError):
+                indices = range(int(start), int(end) + 1) if end else (int(start),)
+                for idx in indices:
+                    selection[idx] = not selection[idx]
+        print(f"\033[{len(selection)}F", end="", flush=True)
+        print_configs()
+    print("Deselected:", " ".join(str(i) for i, selected in enumerate(selection) if not selected))
+
+    return [config for selected, config in zip(selection, configurations, strict=True) if selected]
 
 
 def _conf_to_str(configuration: "ConfigurationType") -> str:
