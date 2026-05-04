@@ -134,13 +134,11 @@ class GitBackupManager(BaseBackupManager[str]):
     ) -> BackupInfo:
         with dw.repo.Repo(self._world) as r:
             r._autogc_disabled = True  # type: ignore[attr-defined]
-            try:
-                progress("updating index")
-                dw.porcelain.add(r)
-                progress("creating commit")
-                commit_id = r.get_worktree().commit((description or "Automated Backup").encode())
-            finally:
-                r._autogc_disabled = False  # type: ignore[attr-defined]
+            progress("updating index")
+            dw.porcelain.add(r)
+            progress("creating commit")
+            commit_id = r.get_worktree().commit((description or "Automated Backup").encode())
+            r._autogc_disabled = False  # type: ignore[attr-defined]
             dw.gc.maybe_auto_gc(r, progress=self._gc_progress(progress))
             return self._commit_to_backup_info(cast("dw.objects.Commit", r[commit_id]))
 

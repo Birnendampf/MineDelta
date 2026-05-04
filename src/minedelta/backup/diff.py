@@ -296,11 +296,11 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 for name in to_keep:
                     file_path = root / name
                     target_file = target_root / name
-                    try:
-                        file_path.replace(target_file)
-                    except OSError:
-                        delete_file_or_dir(target_file)
-                        file_path.replace(target_file)
+                    if target_file.exists():
+                        delete_file_or_dir(file_path)
+                    else:
+                        file_path.rename(target_file)
+
             if not dirs:
                 os.removedirs(root)
 
