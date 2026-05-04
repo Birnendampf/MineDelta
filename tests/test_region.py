@@ -79,12 +79,7 @@ class TestRegionFile:
         [(1, 1, True), (2, 2, True), (2, 1, False), (2, 2, False)],
     )
     @pytest.mark.parametrize(
-        ("left_ext", "right_ext"),
-        [
-            (True, True),
-            (False, True),
-            (False, False),
-        ],
+        ("left_ext", "right_ext"), [(True, True), (False, True), (False, False)]
     )
     @pytest.mark.parametrize("compression", helpers.Compression)
     def test__check_unchanged(  # noqa: PLR0913
@@ -109,10 +104,7 @@ class TestRegionFile:
         )
         if left_ext:
             helpers.write_nbt_to_region_file(dummy_region_file, 0, 1, external=True)
-        with (
-            region.RegionFile(dummy_region_file) as this,
-            region.RegionFile(other_dummy) as other,
-        ):
+        with region.RegionFile(dummy_region_file) as this, region.RegionFile(other_dummy) as other:
             assert expected == this._check_unchanged(
                 this._headers[0], other, other._headers[0], is_chunk, 0
             )
@@ -123,10 +115,7 @@ class TestRegionFile:
         helpers.write_nbt_to_region_file(
             other_dummy, 0, 0, nbt.CompoundTag({"asd": nbt.LongTag(1)})
         )
-        with (
-            region.RegionFile(dummy_region_file) as this,
-            region.RegionFile(other_dummy) as other,
-        ):
+        with region.RegionFile(dummy_region_file) as this, region.RegionFile(other_dummy) as other:
             assert not this._check_unchanged(this._headers[0], other, other._headers[0], False, 0)
 
     def test_density_defragment(self, dummy_region_file: Path) -> None:
@@ -161,10 +150,7 @@ class TestDiffOperations:
     def test_identical(self, dummy_region_file: Path, other_dummy: Path, external: bool) -> None:
         helpers.write_nbt_to_region_file(dummy_region_file, 0, 1, external=external)
         helpers.write_nbt_to_region_file(other_dummy, 0, 1, external=external)
-        with (
-            region.RegionFile(dummy_region_file) as this,
-            region.RegionFile(other_dummy) as other,
-        ):
+        with region.RegionFile(dummy_region_file) as this, region.RegionFile(other_dummy) as other:
             assert this.filter_diff_defragment(other)
             assert this._headers[0].unmodified
             assert not this.get_mcc(0).exists()
@@ -178,10 +164,7 @@ class TestDiffOperations:
     ) -> None:
         tag = nbt.CompoundTag({"LastUpdate": nbt.LongTag(1), "hello": "world"})
         helpers.write_nbt_to_region_file(dummy_region_file, 1, 1, tag)
-        with (
-            region.RegionFile(dummy_region_file) as added,
-            region.RegionFile(other_dummy) as other,
-        ):
+        with region.RegionFile(dummy_region_file) as added, region.RegionFile(other_dummy) as other:
             # yes its ugly but leads to nicer test failures
             if swap:
                 assert not other.filter_diff_defragment(added)

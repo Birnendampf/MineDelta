@@ -20,7 +20,14 @@ import msgspec
 from minedelta._thread_scope import ThreadScope
 from minedelta.region import RegionFile
 
-from .base import BACKUP_IGNORE, BACKUP_IGNORE_FROZENSET, BackupInfo, _MetaDataManager, _noop
+from .base import (
+    BACKUP_IGNORE,
+    BACKUP_IGNORE_FROZENSET,
+    BackupInfo,
+    _MetaDataManager,
+    _noop,
+    delete_file_or_dir,
+)
 
 if TYPE_CHECKING:
     import types
@@ -34,7 +41,7 @@ else:
 
 
 zstd: "types.ModuleType | None" = None
-if sys.version_info >= (3, 13):  # pragma: no cover
+if sys.version_info >= (3, 14):  # pragma: no cover
     with contextlib.suppress(ImportError):
         from compression import zstd
 
@@ -95,8 +102,8 @@ def _py_extract(
                 if member.isdir():
                     skipped_dirs.append(member.name)
                 return None
-            # TODO: if there is e.g. a top level file named "reg", the region directory and its
-            #  contents will falsely be ignored
+            # FIXME: if there is e.g. a top-level skipped directory named "reg", the region
+            #  directory and its contents will falsely be ignored
             if any(member.name.startswith(d) for d in skipped_dirs):
                 return None
             return tarfile.data_filter(member, dest_path)
@@ -204,7 +211,6 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
             tempfile.TemporaryDirectory(dir=self._backup_dir) as temp_dir,
         ):
             new_backup_file = Path(temp_dir, new_backup.name)
-            # the tarfile is intentionally opened and closed here, not in a seperate thread.
             with ThreadScope(executor, "create backup") as scope:
                 scope.submit(self._compress_world, new_backup_file)
                 if prev:
@@ -218,12 +224,9 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                         progress(f'recompressing "{prev.id}"')
                         new_previous = Path(temp_dir, prev.name)
                         _create_archive(
-                            prev_world,
-                            new_previous,
-                            self._zstd_workers,
-                            self._zstd_level,
+                            prev_world, new_previous, self._zstd_workers, self._zstd_level
                         )
-                        # ensure backup creation went well before overwriting prev
+                        # ensure backup creation went well before overwriting previous
                 progress("compressing world")
             new_backup_file.replace(self._backup_dir / new_backup.name)
             if prev:
@@ -264,7 +267,7 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                         progress(f'[{i}/{len(backups_slice)}] applying "{backup_data.id}"')
                         _apply_diff(dest=newest_backup, src=task.result(), cache=region_file_cache)
             # avoid moving ignored files across file system boundaries
-            # (some of it may be large, like DistantHorizons data)
+            # (some of them may be large, like DistantHorizons data)
             progress("deleting current world")
             with tempfile.TemporaryDirectory(dir=Path(self._world).parent) as temp_2:
                 moved_newest = shutil.move(newest_backup, temp_2)
@@ -291,9 +294,13 @@ class DiffBackupManager(_MetaDataManager[BackupData]):
                 target_root = target / root.relative_to(world)
                 target_root.mkdir(parents=True, exist_ok=True)
                 for name in to_keep:
-                    # FIXME: this may become a problem if new ignored files are added: the file is
-                    #  considered ignored, but the previous backup still contains it, this will fail.
-                    (root / name).replace(target_root / name)
+                    file_path = root / name
+                    target_file = target_root / name
+                    if target_file.exists():
+                        delete_file_or_dir(file_path)
+                    else:
+                        file_path.rename(target_file)
+
             if not dirs:
                 os.removedirs(root)
 
@@ -373,7 +380,8 @@ def _filter_diff(
         dest: directory to perform changes in
         scope: Executor to use for filtering
         progress: Will be called with a string describing which anvil file is being filtered
-    Returns: set of files found in `src` but not `dest`, relavtive to src
+
+    Returns: set of paths found in `src` but not `dest`, relative to src
     """
     compare = filecmp.dircmp(src, dest, BACKUP_IGNORE)
     not_present = set()
@@ -390,7 +398,7 @@ def _filter_diff(
             if common_dir not in MCA_FOLDERS:
                 continue
             for file in compare.diff_files:
-                if file.endswith(".mcc"):
+                if not file.endswith(".mca"):
                     continue
                 src_file = Path(compare.left, file)
                 dest_file = Path(compare.right, file)

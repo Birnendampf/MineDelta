@@ -3,7 +3,9 @@
 For more details, see `HardlinkBackupManager`.
 """
 
+import contextlib
 import filecmp
+import os
 import shutil
 import sys
 from collections.abc import Callable
@@ -84,3 +86,22 @@ class HardlinkBackupManager(_MetaDataManager[BackupInfo]):
         progress(f'deleting "{data_chosen.id}"')
         shutil.rmtree(chosen)
         self._write_backups_data(backups_data)
+
+    def _clear_world(self) -> None:
+        leaves = []
+        for root, dirs, files in os.walk(self._world):
+            has_kept_files = False
+            for name in files:
+                if name in BACKUP_IGNORE_FROZENSET:
+                    has_kept_files = True
+                    continue
+                Path(root, name).unlink()
+
+            if not dirs:
+                if not has_kept_files:
+                    leaves.append(root)
+            else:
+                dirs[:] = set(dirs) - BACKUP_IGNORE_FROZENSET
+        for leaf in leaves:
+            with contextlib.suppress(OSError):
+                os.removedirs(leaf)
