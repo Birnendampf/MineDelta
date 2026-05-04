@@ -1,4 +1,5 @@
 import filecmp
+import importlib
 import os
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -15,6 +16,7 @@ def assert_matches_world(world: Path, reference: Path) -> None:
     compare_stack = [("", filecmp.dircmp(world, reference))]
     while compare_stack:
         common_dir, compare = compare_stack.pop()
+        # noinspection PyTypeChecker
         compare_stack.extend(compare.subdirs.items())
         right_only = set(compare.right_only)
         if common_dir in diff.MCA_FOLDERS:
@@ -164,3 +166,27 @@ def test_invalid_lookup(manager: BaseBackupManager[Any], method: str) -> None:
     for wrong_idx in wrong_indices:
         with pytest.raises(LookupError):
             bound_method(wrong_idx)
+
+
+def test_added_ignore(manager: BaseBackupManager[Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    if isinstance(manager, GitBackupManager):
+        pytest.xfail("Git does not handle ignoring previously tracked files well")
+    world = Path(manager.world)
+    not_ignored = world / "not_ignored"
+    not_ignored.write_bytes(b"1")
+    manager.create_backup()
+    new_ignore = [*base.BACKUP_IGNORE, "not_ignored"]
+    manager_module = importlib.import_module(manager.__module__)
+    if hasattr(manager_module, "BACKUP_IGNORE"):
+        monkeypatch.setattr(manager_module, "BACKUP_IGNORE", new_ignore)
+    if hasattr(manager_module, "BACKUP_IGNORE_FROZENSET"):
+        monkeypatch.setattr(manager_module, "BACKUP_IGNORE_FROZENSET", frozenset(new_ignore))
+    manager.prepare()
+    not_ignored.write_bytes(b"2")
+    manager.create_backup()
+    not_ignored.write_bytes(b"3")
+    backups = manager.list_backups()
+    manager.restore_backup(0 if manager.index_by == "idx" else backups[0].id)
+    assert not_ignored.read_bytes() == b"3"
+    manager.restore_backup(1 if manager.index_by == "idx" else backups[1].id)
+    assert not_ignored.read_bytes() == b"1"
