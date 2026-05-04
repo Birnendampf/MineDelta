@@ -172,3 +172,19 @@ def loaded_manager(
             manager.create_backup(path.name)
     manager._world = orig_world
     return manager
+
+
+# FIXME: GitBackupManager with altered ignores
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    for item in items:
+        # narrow down to the specific test
+        if (
+            item.name.startswith("test_added_ignore")
+            and "manager" in item.callspec.params  # type: ignore[attr-defined]
+            and item.callspec.params["manager"] == GitBackupManager  # type: ignore[attr-defined]
+        ):
+            item.add_marker(
+                pytest.mark.xfail(
+                    reason="Git does not handle ignoring previously tracked files well"
+                )
+            )

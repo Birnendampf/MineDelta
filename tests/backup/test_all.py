@@ -169,8 +169,6 @@ def test_invalid_lookup(manager: BaseBackupManager[Any], method: str) -> None:
 
 
 def test_added_ignore(manager: BaseBackupManager[Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    if isinstance(manager, GitBackupManager):
-        pytest.xfail("Git does not handle ignoring previously tracked files well")
     world = Path(manager.world)
     not_ignored = world / "not_ignored"
     not_ignored.write_bytes(b"1")
@@ -179,7 +177,7 @@ def test_added_ignore(manager: BaseBackupManager[Any], monkeypatch: pytest.Monke
     manager_module = importlib.import_module(manager.__module__)
     if hasattr(manager_module, "BACKUP_IGNORE"):
         monkeypatch.setattr(manager_module, "BACKUP_IGNORE", new_ignore)
-    if hasattr(manager_module, "BACKUP_IGNORE_FROZENSET"):
+    if hasattr(manager_module, "BACKUP_IGNORE_FROZENSET"):  # pragma: no cover
         monkeypatch.setattr(manager_module, "BACKUP_IGNORE_FROZENSET", frozenset(new_ignore))
     manager.prepare()
     not_ignored.write_bytes(b"2")

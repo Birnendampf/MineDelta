@@ -5,7 +5,7 @@ For more details, see `GitBackupManager`.
 
 try:
     import dulwich as dw
-except ImportError:  # pragma: no coverage
+except ImportError:  # pragma: no cover
     raise ImportError("dulwich is not installed") from None
 
 import datetime
