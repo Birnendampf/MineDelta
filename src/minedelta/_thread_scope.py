@@ -43,28 +43,38 @@ class DummyExecutor(cf.Executor):
 
 
 class ThreadScope:
-    __slots__ = ("_owns_threadpool", "_scope_name", "_tasks", "_threadpool")
+    __slots__ = ("_owns_pool", "_pool", "_scope_name", "_tasks")
 
     def __init__(self, parent: cf.Executor | Self | None, scope_name: str = "") -> None:
-        self._owns_threadpool = not parent
+        self._owns_pool = not parent
         if parent:
-            self._threadpool = parent
+            self._pool = parent
         elif MAX_WORKERS <= 1:
-            self._threadpool = DummyExecutor()
+            self._pool = DummyExecutor()
         else:
-            self._threadpool = _DefaultExecutor(MAX_WORKERS)
-        if not isinstance(self._threadpool, ThreadScope):
-            self._threadpool._inner_submit = self._threadpool.submit  # type: ignore[attr-defined]
+            self._pool = _DefaultExecutor(MAX_WORKERS)
+        if not isinstance(self._pool, ThreadScope):
+            self._pool._inner_submit = self._pool.submit  # type: ignore[attr-defined]
         self._tasks: set[cf.Future[Any]] = set()
         self._scope_name = scope_name
 
     def __enter__(self) -> Self:
         return self
 
+    def __repr__(self) -> str:  # pragma: no cover
+        info = [""]
+        if self._scope_name:
+            info.append(repr(self._scope_name))
+        if self._tasks:
+            info.append(f"tasks={len(self._tasks)}")
+        info_str = " ".join(info)
+
+        return f"<ThreadScope{info_str}>"
+
     def _inner_submit(
         self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
     ) -> cf.Future[T]:
-        return self._threadpool._inner_submit(fn, *args, **kwargs)  # type: ignore[union-attr]
+        return self._pool._inner_submit(fn, *args, **kwargs)  # type: ignore[union-attr]
 
     def submit(self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> cf.Future[T]:
         fut = self._inner_submit(fn, *args, **kwargs)
@@ -81,17 +91,17 @@ class ThreadScope:
             _, not_done = cf.wait(self._tasks, return_when=cf.FIRST_EXCEPTION)
         else:
             not_done = self._tasks.copy()
-        # an exception occurred
+
         for fut in not_done:
             if fut.cancel():
                 self._tasks.remove(fut)
-        if self._owns_threadpool:
-            assert isinstance(self._threadpool, cf.Executor)  # noqa: S101
+        if self._owns_pool:
+            assert isinstance(self._pool, cf.Executor)  # noqa: S101
             # shutdown already waits, no need to wait after.
-            self._threadpool.shutdown()
+            self._pool.shutdown()
         else:
             cf.wait(self._tasks, return_when=cf.ALL_COMPLETED)
-        exceptions = {fut.exception() for fut in self._tasks}
+        exceptions = {fut.exception() for fut in self._tasks if not fut.cancelled()}
         exceptions.add(exc_val)
         exceptions.discard(None)
 
@@ -99,7 +109,6 @@ class ThreadScope:
             error_msg = "Exceptions occurred in scope"
             if self._scope_name:
                 error_msg += f' "{self._scope_name}"'
-            # noinspection PyUnnecessaryCast
             raise BaseExceptionGroup(
                 error_msg, tuple(cast("set[BaseException]", exceptions))
             ) from None

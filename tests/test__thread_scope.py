@@ -81,7 +81,7 @@ class TestThreadScope:
         monkeypatch.setattr(_thread_scope, "MAX_WORKERS", 1 if single_threaded else 2)
         with ThreadScope(None) as scope:
             assert isinstance(
-                scope._threadpool,
+                scope._pool,
                 _thread_scope.DummyExecutor if single_threaded else _thread_scope._DefaultExecutor,
             )
 
