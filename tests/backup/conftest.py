@@ -13,6 +13,7 @@ from minedelta.backup import (
     HardlinkBackupManager,
     diff,
 )
+from minedelta.backup.fast import FastBackupManager
 from tests import helpers
 
 WorldVariations: TypeAlias = tuple[Path, ...]
@@ -144,7 +145,9 @@ def world_variations(
     return tuple(loc[f"_world_{i}"] for i in request.param)
 
 
-@pytest.fixture(params=[GitBackupManager, DiffBackupManager, HardlinkBackupManager])
+@pytest.fixture(
+    params=[GitBackupManager, DiffBackupManager, HardlinkBackupManager, FastBackupManager]
+)
 def manager(request: pytest.FixtureRequest, tmp_path: Path) -> BaseBackupManager[Any]:
     world_dir = tmp_path / "world"
     backup_dir = tmp_path / "backup"

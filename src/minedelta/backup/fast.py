@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 from . import BackupInfo
-from .base import BACKUP_IGNORE_FROZENSET, BaseBackupManager, _noop
+from .base import BACKUP_IGNORE_FROZENSET, BaseBackupManager, _id_T, _noop
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
@@ -143,3 +143,15 @@ class FastBackupManager(BaseBackupManager[int]):
     def _hash_file(path: "StrPath") -> bytes:
         with open(path, "rb", 0) as f:
             return hashlib.file_digest(f, hashlib.sha1).digest()
+
+    @override
+    def restore_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
+        raise NotImplementedError("TODO")
+
+    @override
+    def delete_backup(self, id_: _id_T, progress: Callable[[str], None] = _noop) -> None:
+        raise NotImplementedError("TODO")
+
+    @override
+    def list_backups(self) -> list[BackupInfo]:
+        raise NotImplementedError("TODO")
