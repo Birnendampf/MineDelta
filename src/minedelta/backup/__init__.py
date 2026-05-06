@@ -10,3 +10,8 @@ with contextlib.suppress(ImportError):
     from .git import GitBackupManager
 
     __all__ += ["GitBackupManager"]
+
+with contextlib.suppress(ImportError):
+    from .fast import FastBackupManager
+
+    __all__ += ["FastBackupManager"]

@@ -106,6 +106,7 @@ def main() -> None:
         (backup.HardlinkBackupManager, "--hl"),
         (backup.GitBackupManager, "--gt"),
         (backup.DiffBackupManager, "--df"),
+        (backup.FastBackupManager, "--ft"),
     ):
         manager_group.add_argument(
             f"--{manager.__name__[:-13].lower()}",
@@ -252,7 +253,12 @@ def _run(args: argparse.Namespace) -> None:
     actions: set[str] = set(args.actions or ("create", "restore", "delete"))
     managers: set[type[backup.BaseBackupManager[Any]]] = set(
         args.manager
-        or (backup.HardlinkBackupManager, backup.GitBackupManager, backup.DiffBackupManager)
+        or (
+            backup.HardlinkBackupManager,
+            backup.GitBackupManager,
+            backup.DiffBackupManager,
+            backup.FastBackupManager,
+        )
     )
     results = {
         manager.__name__: _benchmark_manager(manager, actions, captures, bool(args.verbose))

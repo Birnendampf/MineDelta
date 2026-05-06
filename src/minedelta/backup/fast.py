@@ -27,7 +27,10 @@ if sys.version_info >= (3, 14):  # pragma: no cover
     # noinspection PyCompatibility
     from compression import zstd
 else:
+    # noinspection PyPackageRequirements
     from backports import zstd
+
+__all__ = ["FastBackupManager"]
 
 BUF_SIZE: Final = 2**19
 
