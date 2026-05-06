@@ -9,7 +9,6 @@ import filecmp
 import os
 import shutil
 import sys
-import tarfile
 import tempfile
 from collections.abc import Callable, Iterable, Set
 from pathlib import Path
@@ -42,8 +41,16 @@ else:
 
 zstd: "types.ModuleType | None" = None
 if sys.version_info >= (3, 14):  # pragma: no cover
+    import tarfile
+
     with contextlib.suppress(ImportError):
         from compression import zstd
+else:
+    try:
+        from backports import zstd
+        from backports.zstd import tarfile
+    except ImportError:
+        import tarfile  # type: ignore[no-redef]
 
 
 __all__ = ["DiffBackupManager"]
@@ -130,7 +137,7 @@ def _py_create_archive(
                 return None
             return tarinfo
 
-    if sys.version_info >= (3, 14) and zstd:  # pragma: no cover
+    if zstd:
         with tarfile.open(
             dest,
             "w:zst",
@@ -140,7 +147,7 @@ def _py_create_archive(
             },
         ) as tar:
             tar.add(src, "", filter=_backup_filter)
-    else:
+    else:  # pragma: no cover
         with tarfile.open(dest, "w:gz") as tar:
             tar.add(src, "", filter=_backup_filter)
 
