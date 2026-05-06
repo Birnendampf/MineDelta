@@ -8,13 +8,12 @@ import shutil
 import sqlite3
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from . import BackupInfo
-from .base import BACKUP_IGNORE_FROZENSET, BaseBackupManager, _id_T, _noop
+from .base import BACKUP_IGNORE_FROZENSET, BackupInfo, BaseBackupManager, _noop
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
@@ -73,18 +72,22 @@ class FastBackupManager(BaseBackupManager[int]):
                 )
             conn.execute("PRAGMA optimize")
 
-    @override
-    def create_backup(
-        self, description: str | None = None, progress: Callable[[str], None] = _noop
-    ) -> BackupInfo:
-        timestamp = int(time.time())
+    @contextlib.contextmanager
+    def _get_cursor(self) -> Generator[sqlite3.Cursor, None, None]:
         with (
             contextlib.closing(
                 sqlite3.connect(self._backup_dir / "index.sqlite", isolation_level="IMMEDIATE")
             ) as conn,
             conn,
         ):
-            cursor = conn.executescript("PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;")
+            yield conn.executescript("PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;")
+
+    @override
+    def create_backup(
+        self, description: str | None = None, progress: Callable[[str], None] = _noop
+    ) -> BackupInfo:
+        timestamp = int(time.time())
+        with self._get_cursor() as cursor:
             cursor.execute(
                 "INSERT INTO Snapshots (date, message) VALUES (?, ?)", (timestamp, description)
             )
@@ -152,9 +155,17 @@ class FastBackupManager(BaseBackupManager[int]):
         raise NotImplementedError("TODO")
 
     @override
-    def delete_backup(self, id_: _id_T, progress: Callable[[str], None] = _noop) -> None:
+    def delete_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
         raise NotImplementedError("TODO")
 
     @override
     def list_backups(self) -> list[BackupInfo]:
-        raise NotImplementedError("TODO")
+        with self._get_cursor() as cursor:
+            return [
+                BackupInfo(
+                    datetime.datetime.fromtimestamp(entry[0], tz=datetime.UTC), entry[1], entry[2]
+                )
+                for entry in cursor.execute(
+                    "SELECT date, id, message FROM Snapshots ORDER BY id DESC"
+                )
+            ]
