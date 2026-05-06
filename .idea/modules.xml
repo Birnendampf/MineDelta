@@ -2,7 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/MineDelta.iml" filepath="$PROJECT_DIR$/.idea/MineDelta.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/minedelta.iml" filepath="$PROJECT_DIR$/.idea/minedelta.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/nbtcompare.iml" filepath="$PROJECT_DIR$/.idea/nbtcompare.iml" />
     </modules>
   </component>
 </project>

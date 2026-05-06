@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="pytest" type="tests" factoryName="py.test">
-    <module name="MineDelta" />
+    <module name="minedelta" />
     <selectedOptions>
       <option name="environmentVariables" visible="false" />
       <option name="envPaths" visible="false" />
