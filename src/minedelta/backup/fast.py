@@ -44,32 +44,34 @@ class FastBackupManager(BaseBackupManager[int]):
     def prepare(self) -> None:
         super().prepare()
         (self._backup_dir / "objects").mkdir(exist_ok=True)
-        with contextlib.closing(sqlite3.connect(self._backup_dir / "index.sqlite")) as conn, conn:
-            conn.executescript(
-                """
-                PRAGMA foreign_keys = ON;
-                PRAGMA journal_mode = WAL;
-                PRAGMA synchronous = NORMAL;
+        with contextlib.closing(sqlite3.connect(self._backup_dir / "index.sqlite")) as conn:
+            with conn:
+                conn.executescript(
+                    """
+                    PRAGMA journal_mode = WAL;
+                    PRAGMA synchronous = NORMAL;
+                    PRAGMA foreign_keys = ON;
 
-                BEGIN;
-                CREATE TABLE IF NOT EXISTS Snapshots
-                (
-                    id      INTEGER PRIMARY KEY,
-                    date    INTEGER NOT NULL,
-                    message TEXT
-                );
-                CREATE TABLE IF NOT EXISTS FileIndex
-                (
-                    id       INTEGER REFERENCES Snapshots (id) ON DELETE CASCADE,
-                    path     TEXT,
-                    size     INTEGER NOT NULL,
-                    mtime    INTEGER NOT NULL,
-                    hash     BLOB    NOT NULL,
-                    is_delta INTEGER NOT NULL,
-                    PRIMARY KEY (id, path)
-                ) WITHOUT ROWID;
-                """
-            )
+                    BEGIN;
+                    CREATE TABLE IF NOT EXISTS Snapshots
+                    (
+                        id      INTEGER PRIMARY KEY,
+                        date    INTEGER NOT NULL,
+                        message TEXT
+                    );
+                    CREATE TABLE IF NOT EXISTS FileIndex
+                    (
+                        id       INTEGER REFERENCES Snapshots (id) ON DELETE CASCADE,
+                        path     TEXT,
+                        size     INTEGER NOT NULL,
+                        mtime    INTEGER NOT NULL,
+                        hash     BLOB    NOT NULL,
+                        is_delta INTEGER NOT NULL,
+                        PRIMARY KEY (id, path)
+                    ) WITHOUT ROWID;
+                    """
+                )
+            conn.execute("PRAGMA optimize")
 
     @override
     def create_backup(
@@ -82,7 +84,8 @@ class FastBackupManager(BaseBackupManager[int]):
             ) as conn,
             conn,
         ):
-            cursor = conn.execute(
+            cursor = conn.executescript("PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;")
+            cursor.execute(
                 "INSERT INTO Snapshots (date, message) VALUES (?, ?)", (timestamp, description)
             )
             new_id = cursor.lastrowid
