@@ -32,7 +32,7 @@ else:
 BUF_SIZE: Final = 2**19
 
 
-class FastBackupManager(BaseBackupManager[int]):
+class FastBackupManager(BaseBackupManager[str]):
     """Individually compress files and store meta in sqlite database."""
 
     index_by = "id"
@@ -142,6 +142,7 @@ class FastBackupManager(BaseBackupManager[int]):
             open(target_path, "xb", BUF_SIZE, opener=partial(os.open, mode=0o444)) as _w_f,
             zstd.open(_w_f, "w") as w_f,
         ):
+            w_f.write(b"")  # ZstdFile does not flush on empty files. this may be a bug.
             # noinspection PyTypeChecker
             shutil.copyfileobj(r_f, w_f, BUF_SIZE)
 
@@ -152,20 +153,50 @@ class FastBackupManager(BaseBackupManager[int]):
 
     @override
     def restore_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
-        raise NotImplementedError("TODO")
+        with self._get_cursor() as cursor:
+            rows: list[tuple[str, bytes, int]] = cursor.execute(
+                "SELECT path, hash, mtime FROM FileIndex WHERE id = ?", (id_,)
+            ).fetchall()
+            if not rows:
+                self._validate_id(cursor, id_)
+        self._clear_world()
+        world = Path(self._world)
+        world.mkdir(parents=True, exist_ok=True)
+        for file, sha, mtime in rows:
+            mtime_ns = mtime * 10**3
+            path = world / file
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with zstd.open(self._get_obj_path(sha)) as r_f, open(path, "wb") as w_f:
+                # noinspection PyTypeChecker
+                shutil.copyfileobj(r_f, w_f, BUF_SIZE)
+            os.utime(path, ns=(mtime_ns, mtime_ns))
+
+    @staticmethod
+    def _validate_id(cursor: sqlite3.Cursor, id_: str) -> None:
+        try:
+            idx = int(id_)
+        except ValueError:
+            raise ValueError(f"id {id_} is not an integer") from None
+        if idx < 0:
+            raise IndexError("index must be >= 0")
+        if cursor.execute("SELECT 1 FROM Snapshots WHERE id = ?", (id_,)).fetchone() is None:
+            raise IndexError(f"no backup found with id {id_}")
 
     @override
     def delete_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
-        raise NotImplementedError("TODO")
+        with self._get_cursor() as cursor:
+            cursor.execute("DELETE FROM Snapshots WHERE id = ?", (id_,))
+            if not cursor.rowcount:
+                self._validate_id(cursor, id_)
 
     @override
     def list_backups(self) -> list[BackupInfo]:
         with self._get_cursor() as cursor:
             return [
                 BackupInfo(
-                    datetime.datetime.fromtimestamp(entry[0], tz=datetime.UTC), entry[1], entry[2]
+                    datetime.datetime.fromtimestamp(row[0], tz=datetime.UTC), str(row[1]), row[2]
                 )
-                for entry in cursor.execute(
+                for row in cursor.execute(
                     "SELECT date, id, message FROM Snapshots ORDER BY id DESC"
                 )
             ]

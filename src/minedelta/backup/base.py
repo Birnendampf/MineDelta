@@ -7,6 +7,7 @@ It is not intended to be used directly.
 import abc
 import contextlib
 import datetime
+import os
 import shutil
 import sys
 from collections.abc import Callable, Iterator
@@ -125,6 +126,25 @@ class BaseBackupManager(Generic[_id_T], metaclass=abc.ABCMeta):
         """Returns a list of backups, ordered newest to oldest."""
 
     # TODO: add cron functionality with aiocron
+
+    def _clear_world(self) -> None:
+        leaves = []
+        for root, dirs, files in os.walk(self._world):
+            has_kept_files = False
+            for name in files:
+                if name in BACKUP_IGNORE_FROZENSET:
+                    has_kept_files = True
+                    continue
+                Path(root, name).unlink()
+
+            if not dirs:
+                if not has_kept_files:
+                    leaves.append(root)
+            else:
+                dirs[:] = set(dirs) - BACKUP_IGNORE_FROZENSET
+        for leaf in leaves:
+            with contextlib.suppress(OSError):
+                os.removedirs(leaf)
 
 
 def delete_file_or_dir(path: Path) -> None:

@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from minedelta.backup import BaseBackupManager, GitBackupManager, base, diff
+from minedelta.backup.fast import FastBackupManager
 from minedelta.region import RegionFile
 
 
@@ -161,11 +162,18 @@ def test_invalid_lookup(manager: BaseBackupManager[Any], method: str) -> None:
     manager.create_backup("empty")
     bound_method = getattr(manager, method)
     wrong_indices = (
-        (1, -1) if manager.index_by == "idx" else (manager.list_backups()[0].id[::-1], "")
+        (1, -1)
+        if manager.index_by == "idx"
+        else (manager.list_backups()[0].id[::-1], "")
+        if isinstance(manager, GitBackupManager)
+        else ("-1", "500")
     )
     for wrong_idx in wrong_indices:
         with pytest.raises(LookupError):
             bound_method(wrong_idx)
+    if isinstance(manager, FastBackupManager):
+        with pytest.raises(ValueError, match="id wrong is not an integer"):
+            bound_method("wrong")
 
 
 def test_added_ignore(manager: BaseBackupManager[Any], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -179,6 +187,8 @@ def test_added_ignore(manager: BaseBackupManager[Any], monkeypatch: pytest.Monke
         monkeypatch.setattr(manager_module, "BACKUP_IGNORE", new_ignore)
     if hasattr(manager_module, "BACKUP_IGNORE_FROZENSET"):  # pragma: no cover
         monkeypatch.setattr(manager_module, "BACKUP_IGNORE_FROZENSET", frozenset(new_ignore))
+    monkeypatch.setattr(base, "BACKUP_IGNORE_FROZENSET", frozenset(new_ignore))
+    monkeypatch.setattr(base, "BACKUP_IGNORE", new_ignore)
     manager.prepare()
     not_ignored.write_bytes(b"2")
     manager.create_backup()
