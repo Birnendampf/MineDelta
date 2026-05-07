@@ -1,5 +1,6 @@
 """Individually compress files and store meta in sqlite database."""
 
+import concurrent.futures
 import contextlib
 import datetime
 import hashlib
@@ -12,6 +13,8 @@ from collections.abc import Callable, Generator
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
+
+from minedelta._thread_scope import ThreadScope
 
 from .base import BACKUP_IGNORE_FROZENSET, BackupInfo, BaseBackupManager, _noop
 
@@ -87,7 +90,10 @@ class FastBackupManager(BaseBackupManager[str]):
 
     @override
     def create_backup(
-        self, description: str | None = None, progress: Callable[[str], None] = _noop
+        self,
+        description: str | None = None,
+        progress: Callable[[str], None] = _noop,
+        executor: concurrent.futures.Executor | None = None,
     ) -> BackupInfo:
         timestamp = int(time.time())
         with self._get_cursor() as cursor:
@@ -106,29 +112,29 @@ class FastBackupManager(BaseBackupManager[str]):
                     """
                 )
             }
+            rows = []
             scan_stack = [self._world]
-            while scan_stack:
-                with os.scandir(scan_stack.pop()) as it:
-                    for entry in it:
-                        if entry.name in BACKUP_IGNORE_FROZENSET:
-                            continue
-                        if entry.is_dir():
-                            scan_stack.append(entry)
-                            continue
-                        rel_path = os.path.relpath(entry, self._world)
-                        st = entry.stat()
-                        mtime = st.st_mtime_ns // 10**3
-                        prev_mtime, prev_hash = prev.get((rel_path, st.st_size), (None, b""))
-                        if mtime == prev_mtime:
-                            file_hash = prev_hash
-                        else:
-                            file_hash = self._hash_file(entry)
-                            if file_hash != prev_hash:
-                                with contextlib.suppress(FileExistsError, PermissionError):
-                                    # EAFP, elegantly allows multithreading in the future
-                                    self._add_file(entry, file_hash)
-                        row = (new_id, rel_path, st.st_size, mtime, file_hash, 0)
-                        cursor.execute("INSERT INTO FileIndex VALUES (?, ?, ?, ?, ?, ?)", row)
+            with ThreadScope(executor, "create backup") as scope:
+                while scan_stack:
+                    with os.scandir(scan_stack.pop()) as it:
+                        for entry in it:
+                            if entry.name in BACKUP_IGNORE_FROZENSET:
+                                continue
+                            if entry.is_dir():
+                                scan_stack.append(entry)
+                                continue
+                            rel_path = os.path.relpath(entry, self._world)
+                            st = entry.stat()
+                            mtime = st.st_mtime_ns // 10**3
+                            prev_mtime, prev_hash = prev.get((rel_path, st.st_size), (None, b""))
+                            if mtime == prev_mtime:
+                                file_hash = prev_hash
+                            else:
+                                file_hash = self._hash_file(entry)
+                                if file_hash != prev_hash:
+                                    scope.submit(self._add_file, entry, file_hash)
+                            rows.append((new_id, rel_path, st.st_size, mtime, file_hash, 0))
+                cursor.executemany("INSERT INTO FileIndex VALUES (?, ?, ?, ?, ?, ?)", rows)
         return BackupInfo(
             datetime.datetime.fromtimestamp(timestamp, datetime.UTC), str(new_id), description
         )
@@ -141,8 +147,9 @@ class FastBackupManager(BaseBackupManager[str]):
         target_path = self._get_obj_path(sha)
         target_path.parent.mkdir(exist_ok=True)
         with (
-            open(path, "rb", 0) as r_f,
+            contextlib.suppress(FileExistsError, PermissionError),
             open(target_path, "xb", BUF_SIZE, opener=partial(os.open, mode=0o444)) as _w_f,
+            open(path, "rb", 0) as r_f,
             zstd.open(_w_f, "w") as w_f,
         ):
             w_f.write(b"")  # ZstdFile does not flush on empty files. this may be a bug.

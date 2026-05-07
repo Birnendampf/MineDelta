@@ -37,7 +37,6 @@ from minedelta import backup, nbt, region
 
 # noinspection PyProtectedMember
 from minedelta._thread_scope import MAX_WORKERS, DummyExecutor
-from minedelta.backup import DiffBackupManager
 
 if TYPE_CHECKING:
     from typing import Protocol, TypeAlias
@@ -317,7 +316,7 @@ def _diff_variations(args: argparse.Namespace) -> None:
             else ex_type()
         ) as executor:
             results[str_config] = _benchmark_manager(
-                DiffBackupManager,
+                backup.DiffBackupManager,
                 actions,
                 captures,
                 bool(args.verbose),
