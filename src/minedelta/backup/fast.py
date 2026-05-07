@@ -210,3 +210,19 @@ class FastBackupManager(BaseBackupManager[str]):
                     "SELECT date, id, message FROM Snapshots ORDER BY id DESC"
                 )
             ]
+
+    def gc(self, progress: Callable[[str], None] = _noop) -> int:
+        """Collect unused objects."""
+        with self._get_cursor() as cursor:
+            present: set[str] = {
+                row[0].hex()
+                for row in cursor.execute("SELECT DISTINCT hash FROM FileIndex").fetchall()
+            }
+            cursor.executescript("VACUUM; PRAGMA optimize;")
+        removed = 0
+        for top in (self._backup_dir / "objects").iterdir():
+            for file in top.iterdir():
+                if top.name + file.name not in present:
+                    removed += 1
+                    file.unlink()
+        return removed
