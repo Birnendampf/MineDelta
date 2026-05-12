@@ -126,7 +126,7 @@ class FastBackupManager(BaseBackupManager[str]):
                                 continue
                             rel_path = os.path.relpath(entry, self._world)
                             st = entry.stat()
-                            mtime = st.st_mtime_ns // 10**3
+                            mtime = st.st_mtime_ns // 10**6
                             prev_mtime, prev_hash = prev.get((rel_path, st.st_size), (None, b""))
                             if mtime == prev_mtime:
                                 file_hash = prev_hash
@@ -173,7 +173,7 @@ class FastBackupManager(BaseBackupManager[str]):
         world = Path(self._world)
         world.mkdir(parents=True, exist_ok=True)
         for file, sha, mtime in rows:
-            mtime_ns = mtime * 10**3
+            mtime_ns = mtime * 10**6
             path = world / file
             path.parent.mkdir(parents=True, exist_ok=True)
             with zstd.open(self._get_obj_path(sha)) as r_f, open(path, "wb") as w_f:
@@ -215,8 +215,7 @@ class FastBackupManager(BaseBackupManager[str]):
         """Collect unused objects."""
         with self._get_cursor() as cursor:
             present: set[str] = {
-                row[0].hex()
-                for row in cursor.execute("SELECT DISTINCT hash FROM FileIndex").fetchall()
+                row[0].hex() for row in cursor.execute("SELECT hash FROM FileIndex")
             }
             cursor.executescript("VACUUM; PRAGMA optimize;")
         removed = 0
