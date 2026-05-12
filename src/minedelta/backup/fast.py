@@ -3,7 +3,6 @@
 import concurrent.futures
 import contextlib
 import datetime
-import hashlib
 import os
 import shutil
 import sqlite3
@@ -13,6 +12,8 @@ from collections.abc import Callable, Generator
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
+
+from blake3 import blake3
 
 from minedelta._thread_scope import ThreadScope
 
@@ -158,8 +159,7 @@ class FastBackupManager(BaseBackupManager[str]):
 
     @staticmethod
     def _hash_file(path: "StrPath") -> bytes:
-        with open(path, "rb", 0) as f:
-            return hashlib.file_digest(f, hashlib.sha1).digest()
+        return blake3().update_mmap(path).digest(16)
 
     @override
     def restore_backup(self, id_: str, progress: Callable[[str], None] = _noop) -> None:
