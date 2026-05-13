@@ -174,8 +174,9 @@ def loaded_manager(
     return manager
 
 
+# noinspection PyUnusedLocal
 # FIXME: GitBackupManager with altered ignores
-def pytest_collection_modifyitems(_config: pytest.Config, items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     for item in items:
         # narrow down to the specific test
         if (
