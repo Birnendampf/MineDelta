@@ -36,7 +36,7 @@ Source = "https://github.com/Birnendampf/MineDelta"
 
 [project.optional-dependencies]
 git = [
-    "dulwich>=1.0.0",
+    "dulwich>=1.2.5",
 ]
 lz4 = [
     "lz4>=4.4.5",
@@ -47,7 +47,7 @@ fast = [
 ]
 standard = [
     "minedelta[fast]",
-    "dulwich>=1.0.0",
+    "dulwich>=1.2.5",
     "lz4>=4.4.5",
 ]
 
